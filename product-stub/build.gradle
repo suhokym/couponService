@@ -1,0 +1,15 @@
+apply plugin: 'org.springframework.boot'
+
+dependencies {
+    // Web (상품 정보 조회 REST API)
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    // JPA & MySQL (상품-쿠폰 정책 매핑 정보)
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    runtimeOnly 'com.mysql:mysql-connector-j'
+
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // Swagger UI (OpenAPI)
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.3'
+}

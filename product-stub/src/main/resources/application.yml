@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: product-stub
+
+server:
+  port: 8084
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html

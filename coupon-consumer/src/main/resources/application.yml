@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: coupon-consumer
+  datasource:
+    url: jdbc:mysql://localhost:3306/coupon?useUnicode=yes&characterEncoding=UTF-8&rewriteBatchedStatements=true&allowPublicKeyRetrieval=true&useSSL=false
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: abcd
+    password: '1234'
+    hikari:
+      maximum-pool-size: 10
+      max-lifetime: 1800000
+      connection-timeout: 3000
+  jpa:
+    hibernate:
+      ddl-auto: create
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  data:
+    redis:
+      host: localhost
+      port: 6380
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: coupon-consumer-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+
+server:
+  port: 8082

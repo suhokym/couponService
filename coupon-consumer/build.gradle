@@ -1,0 +1,19 @@
+apply plugin: 'org.springframework.boot'
+
+dependencies {
+    implementation project(':coupon-domain')
+
+    // MVC (Kafka는 blocking이라 WebFlux보다 MVC가 맞음)
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    // Redis
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+
+    // Kafka
+    implementation 'org.springframework.kafka:spring-kafka'
+
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // Swagger
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.3'
+}
