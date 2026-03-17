@@ -29,6 +29,9 @@ public class CouponCampaign extends BaseTimeEntity {
     @Column(nullable = true)
     private Integer totalQuantity; // 총 발급 가능 수량 (null = 수량 무제한, OPEN 타입에서 사용)
 
+    @Column(nullable = true)
+    private Integer IssuedQuantity; // 현재 발급 수량 (null = 수량 무제한, OPEN 타입에서 사용)
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private CampaignType type; // 발급 방식 (FIRST_COME / CODE / OPEN / MANUAL)

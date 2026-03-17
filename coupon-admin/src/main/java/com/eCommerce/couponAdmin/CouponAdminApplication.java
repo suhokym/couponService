@@ -6,9 +6,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.context.annotation.Import;
 
-@SpringBootApplication
+
+@SpringBootApplication(scanBasePackages = "com.eCommerce")
 @Import(CouponDomainConfiguration.class)
-@EntityScan(basePackages = "com.eCommerce.couponDomain.entity")
 public class CouponAdminApplication {
     public static void main(String[] args) {
         SpringApplication.run(CouponAdminApplication.class, args);
