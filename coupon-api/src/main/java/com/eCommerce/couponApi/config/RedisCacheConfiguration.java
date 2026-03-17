@@ -29,7 +29,7 @@ public class RedisCacheConfiguration {
                 .serializeValuesWith(RedisSerializationContext
                         .SerializationPair
                         .fromSerializer(RedisSerializer.java()))
-                .entryTtl(Duration.ofMinutes(30));
+                .entryTtl(Duration.ofMinutes(20));
 
         return RedisCacheManager.RedisCacheManagerBuilder.fromConnectionFactory(redisConnectionFactory)
                 .cacheDefaults(redisCacheConfiguration)
