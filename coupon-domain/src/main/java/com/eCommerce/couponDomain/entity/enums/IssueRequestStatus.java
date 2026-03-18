@@ -11,6 +11,7 @@ public enum IssueRequestStatus {
     FAILED_BUSINESS,  // 비즈니스 오류로 실패 (중복 발급, 수량 초과 등) - 재시도 불필요
     FAILED_RETRYABLE, // 일시적 오류로 실패 (DB 타임아웃 등) - 재시도 가능
     FAILED_FATAL,     // 복구 불가 오류로 최종 실패
+    FAILED_REQUESTED, // request발행 오류
 
     RETRYING          // 재시도 진행 중
 }

@@ -28,7 +28,7 @@ public class CouponRedisService {
                 return redisRepository.issueRequest(couponId, userId, couponCache.totalQuantity())
                         .doOnNext(CouponIssueReqeustCode::checkRequestResult);
 
-            } else {//기본적인 쿠폰일때 중복체크만 포함
+            } else {//기본적인 쿠폰일때 중복체크만 포함 이거 luaScript로 원자적으로 바꾸기
                 return redisRepository.sIsMember(getIssuedCouponUsers(couponId), userId).flatMap(isDuplication -> {
                     if (isDuplication) {
                         return Mono.error(new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE, "이미 발급된 쿠폰입니다"));

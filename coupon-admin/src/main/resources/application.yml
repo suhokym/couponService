@@ -23,6 +23,16 @@ spring:
       port: 6380
   kafka:
     bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: coupon-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
 
 server:
   port: 8083
@@ -30,6 +40,9 @@ server:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+
+
 
 ---
 spring:
@@ -52,3 +65,4 @@ spring:
     redis:
       host: localhost
       port: 6380
+

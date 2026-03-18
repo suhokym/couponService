@@ -2,6 +2,8 @@ package com.eCommerce.couponDomain.entity;
 
 import com.eCommerce.couponDomain.entity.enums.UserCouponStatus;
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -16,7 +18,9 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "user_coupon")
 @Getter
+@AllArgsConstructor
 @NoArgsConstructor
+@Builder
 public class UserCoupon extends BaseTimeEntity {
 
     @Id

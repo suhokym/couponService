@@ -2,6 +2,8 @@ package com.eCommerce.couponDomain.entity;
 
 import com.eCommerce.couponDomain.entity.enums.IssueRequestStatus;
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -13,7 +15,9 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(name = "coupon_issue_request")
 @Getter
+@AllArgsConstructor
 @NoArgsConstructor
+@Builder
 public class CouponIssueRequest extends BaseTimeEntity {
 
     @Id
@@ -21,7 +25,7 @@ public class CouponIssueRequest extends BaseTimeEntity {
     private Long requestId;
 
     @Column(nullable = false)
-    private Long userId; // 발급 요청 사용자 ID
+    private String userId; // 발급 요청 사용자 ID
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "campaign_id", nullable = false)

@@ -2,6 +2,8 @@ package com.eCommerce.couponDomain.entity;
 
 import com.eCommerce.couponDomain.entity.enums.EventProcessingStatus;
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.CreatedDate;
@@ -17,7 +19,9 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "coupon_event_log")
 @Getter
+@AllArgsConstructor
 @NoArgsConstructor
+@Builder
 @EntityListeners(AuditingEntityListener.class)
 public class CouponEventLog {
 

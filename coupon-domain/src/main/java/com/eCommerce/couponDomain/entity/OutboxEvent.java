@@ -2,6 +2,8 @@ package com.eCommerce.couponDomain.entity;
 
 import com.eCommerce.couponDomain.entity.enums.OutboxPublishStatus;
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -14,7 +16,9 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(name = "outbox_event")
 @Getter
+@AllArgsConstructor
 @NoArgsConstructor
+@Builder
 public class OutboxEvent extends BaseTimeEntity {
 
     @Id

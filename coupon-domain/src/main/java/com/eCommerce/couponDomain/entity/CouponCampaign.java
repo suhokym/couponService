@@ -3,6 +3,8 @@ package com.eCommerce.couponDomain.entity;
 import com.eCommerce.couponDomain.entity.enums.CampaignStatus;
 import com.eCommerce.couponDomain.entity.enums.CampaignType;
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -16,7 +18,9 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "coupon_campaign")
 @Getter
+@AllArgsConstructor
 @NoArgsConstructor
+@Builder
 public class CouponCampaign extends BaseTimeEntity {
 
     @Id
