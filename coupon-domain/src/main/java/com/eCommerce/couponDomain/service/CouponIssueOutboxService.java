@@ -27,16 +27,6 @@ public class CouponIssueOutboxService {
     private final OutboxEventRepository outboxEventRepository;
 
 
-
-    //아웃박스 저장하는 로직 모든 저장이 완료 되거나 실패하면
-    public void saveIssueRequestWithOutbox(CouponIssueEventDto event, CouponCampaign campaign) {
-
-
-
-
-
-    }
-
     @Transactional(readOnly = true)
     public List<OutboxEvent> findOutboxPendingOrFailed() {
         return outboxEventRepository.findOutboxPendingOrFailed();

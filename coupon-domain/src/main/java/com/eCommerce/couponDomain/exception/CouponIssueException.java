@@ -1,5 +1,8 @@
 package com.eCommerce.couponDomain.exception;
 
+import lombok.Getter;
+
+@Getter
 public class CouponIssueException extends RuntimeException {
 
     private final ErrorCode errorCode;

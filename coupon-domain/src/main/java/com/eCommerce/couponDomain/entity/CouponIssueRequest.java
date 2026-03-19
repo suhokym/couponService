@@ -39,4 +39,9 @@ public class CouponIssueRequest extends BaseTimeEntity {
 
     @Column(nullable = false)
     private int retryCount = 0; // 재시도 횟수
+
+    public void updateStatus(IssueRequestStatus status) {
+        this.status = status;
+    }
+
 }

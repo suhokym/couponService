@@ -6,6 +6,7 @@ import com.eCommerce.couponApi.repository.redisDto.CouponRedisEntity;
 import com.eCommerce.couponDomain.entity.enums.CampaignStatus;
 import com.eCommerce.couponDomain.entity.enums.CampaignType;
 import com.eCommerce.couponDomain.exception.CouponIssueException;
+import com.eCommerce.couponDomain.service.CouponIssueService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,9 +19,10 @@ import reactor.test.StepVerifier;
 
 import java.time.LocalDateTime;
 
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class CouponRedisServiceTest {
@@ -34,8 +36,10 @@ class CouponRedisServiceTest {
     @Mock
     private RedisRepository redisRepository;
 
+    @Mock
+    private CouponIssueService couponIssueService;  // 추가
+
     private CouponRedisEntity firstComeCoupon;
-    private CouponRedisEntity openCoupon;
 
     @BeforeEach
     void setUp() {
@@ -47,32 +51,26 @@ class CouponRedisServiceTest {
                 LocalDateTime.now().plusDays(1),
                 CampaignStatus.ACTIVE
         );
-
-        openCoupon = new CouponRedisEntity(
-                2L,
-                CampaignType.OPEN,
-                null,
-                LocalDateTime.now().minusDays(1),
-                LocalDateTime.now().plusDays(1),
-                CampaignStatus.ACTIVE
-        );
     }
 
-    // ========== 선착순 쿠폰 ==========
-
     @Test
-    @DisplayName("선착순 쿠폰 발급 성공")
+    @DisplayName("선착순 쿠폰 발급 성공 - request 저장 포함")
     void firstCome_issue_success() {
         // given
         given(couponCacheService.getCouponCache(1L))
                 .willReturn(Mono.just(firstComeCoupon));
         given(redisRepository.issueRequest(1L, "user1", 100))
                 .willReturn(Mono.just(CouponIssueReqeustCode.SUCCESS));
+        given(couponIssueService.saveIssueRequestAndEventLog(1L, "user1", "coupon-issue-requested"))
+                .willReturn(1L);
 
         // when & then
         StepVerifier.create(couponRedisService.issue(1L, "user1"))
-                .expectNext(CouponIssueReqeustCode.SUCCESS)
+                .expectNextMatches(result -> result.code() == CouponIssueReqeustCode.SUCCESS
+                        && result.requestId() == 1L)
                 .verifyComplete();
+
+        verify(couponIssueService).saveIssueRequestAndEventLog(1L, "user1", "coupon-issue-requested");
     }
 
     @Test
@@ -88,6 +86,9 @@ class CouponRedisServiceTest {
         StepVerifier.create(couponRedisService.issue(1L, "user1"))
                 .expectError(CouponIssueException.class)
                 .verify();
+
+        // 실패 시 저장 안 됨
+        verify(couponIssueService, never()).saveIssueRequestAndEventLog(anyLong(), anyString(), anyString());
     }
 
     @Test
@@ -103,43 +104,26 @@ class CouponRedisServiceTest {
         StepVerifier.create(couponRedisService.issue(1L, "user1"))
                 .expectError(CouponIssueException.class)
                 .verify();
-    }
 
-    // ========== 일반 쿠폰 ==========
-
-    @Test
-    @DisplayName("일반 쿠폰 발급 성공")
-    void open_issue_success() {
-        // given
-        given(couponCacheService.getCouponCache(2L))
-                .willReturn(Mono.just(openCoupon));
-        given(redisRepository.sIsMember(anyString(), eq("user1")))
-                .willReturn(Mono.just(false));
-        given(redisRepository.sAdd(anyString(), eq("user1")))
-                .willReturn(Mono.just(1L));
-
-        // when & then
-        StepVerifier.create(couponRedisService.issue(2L, "user1"))
-                .expectNext(CouponIssueReqeustCode.SUCCESS)
-                .verifyComplete();
+        verify(couponIssueService, never()).saveIssueRequestAndEventLog(anyLong(), anyString(), anyString());
     }
 
     @Test
-    @DisplayName("일반 쿠폰 중복 발급 시 예외")
-    void open_issue_duplicate() {
+    @DisplayName("DB 저장 실패 시 예외 전파")
+    void firstCome_issue_dbFail() {
         // given
-        given(couponCacheService.getCouponCache(2L))
-                .willReturn(Mono.just(openCoupon));
-        given(redisRepository.sIsMember(anyString(), eq("user1")))
-                .willReturn(Mono.just(true));
+        given(couponCacheService.getCouponCache(1L))
+                .willReturn(Mono.just(firstComeCoupon));
+        given(redisRepository.issueRequest(1L, "user1", 100))
+                .willReturn(Mono.just(CouponIssueReqeustCode.SUCCESS));
+        given(couponIssueService.saveIssueRequestAndEventLog(1L, "user1", "coupon-issue-requested"))
+                .willThrow(new RuntimeException("DB 연결 실패"));
 
         // when & then
-        StepVerifier.create(couponRedisService.issue(2L, "user1"))
-                .expectError(CouponIssueException.class)
+        StepVerifier.create(couponRedisService.issue(1L, "user1"))
+                .expectError(RuntimeException.class)
                 .verify();
     }
-
-    // ========== 공통 예외 ==========
 
     @Test
     @DisplayName("만료된 캠페인 발급 시 예외")
@@ -150,7 +134,7 @@ class CouponRedisServiceTest {
                 CampaignType.FIRST_COME,
                 100,
                 LocalDateTime.now().minusDays(10),
-                LocalDateTime.now().minusDays(1), // 이미 만료
+                LocalDateTime.now().minusDays(1),
                 CampaignStatus.ENDED
         );
         given(couponCacheService.getCouponCache(1L))

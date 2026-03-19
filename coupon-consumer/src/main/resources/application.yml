@@ -12,7 +12,7 @@ spring:
       connection-timeout: 3000
   jpa:
     hibernate:
-      ddl-auto: create
+      ddl-auto: none
     show-sql: true
     properties:
       hibernate:
@@ -30,6 +30,7 @@ spring:
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
         spring.json.trusted.packages: "*"
-
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.eCommerce.couponDomain.dto.CouponIssueEventDto
 server:
   port: 8082

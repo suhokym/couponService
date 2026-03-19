@@ -1,6 +1,7 @@
 package com.eCommerce.couponDomain.entity;
 
 import com.eCommerce.couponDomain.entity.enums.EventProcessingStatus;
+import com.eCommerce.couponDomain.entity.enums.IssueRequestStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -29,7 +30,7 @@ public class CouponEventLog {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long eventId;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "request_id", nullable = false)
     private CouponIssueRequest request; // 연관된 발급 요청
 
@@ -48,4 +49,8 @@ public class CouponEventLog {
     @CreatedDate
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt; // 로그 기록 시각
+
+    public void updateStatus(EventProcessingStatus status) {
+        this.processingStatus = status;
+    }
 }

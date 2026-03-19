@@ -1,6 +1,7 @@
 package com.eCommerce.couponApi.service;
 
 
+import com.eCommerce.couponApi.dto.CouponIssueResultDto;
 import com.eCommerce.couponApi.repository.RedisRepository;
 import com.eCommerce.couponApi.repository.redisDto.CouponIssueReqeustCode;
 import com.eCommerce.couponApi.repository.redisDto.CouponRedisEntity;
@@ -31,7 +32,8 @@ public class CouponRedisService {
     private final CouponIssueService couponIssueService;
 
 
-    public Mono<CouponIssueReqeustCode> issue(long couponId, String userId) {
+    public Mono<CouponIssueResultDto> issue(long couponId, String userId) {
+        String FIRST_COME_TOPIC = "coupon-issue-requested";
         return couponCacheService.getCouponCache(couponId).flatMap(couponCache -> {
             couponCache.availableIssueableCoupon();// 쿠폰 기한 체크 쿠폰 상태 체크
                 //선착순 쿠폰 체크 로직 구현
@@ -42,11 +44,11 @@ public class CouponRedisService {
                         .flatMap(code -> {
                             if (code == CouponIssueReqeustCode.SUCCESS) {
                                 return Mono.fromCallable(() ->{
-                                    couponIssueService.saveIssueRequestAndEventLog(couponCache.id(), userId);
-                                    return code;
+                                    Long requestId = couponIssueService.saveIssueRequestAndEventLog(couponCache.id(), userId, FIRST_COME_TOPIC);
+                                    return new CouponIssueResultDto(code, requestId);
                                 }).subscribeOn(Schedulers.boundedElastic());
                             }
-                            return Mono.just(code);
+                            return Mono.just(new CouponIssueResultDto(code, null));
                         });
 
 

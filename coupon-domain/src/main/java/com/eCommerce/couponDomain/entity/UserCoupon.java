@@ -28,7 +28,7 @@ public class UserCoupon extends BaseTimeEntity {
     private Long userCouponId;
 
     @Column(nullable = false)
-    private Long userId; // 쿠폰 소유 사용자 ID
+    private String userId; // 쿠폰 소유 사용자 ID
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "campaign_id", nullable = false)
