@@ -33,7 +33,7 @@ public class KafkaConsumerService {
         couponIssueService.updateIssueRequestStatus(event.couponIssueRequestId(), IssueRequestStatus.PROCESSING);
         CouponCampaign campaign = couponIssueService.findCoupon(event.couponId());
         couponIssueService.checkAlreadyEvent(event.couponIssueRequestId());
-        //실제 유저 쿠폰 있는지 확인
+        //실제 유저 쿠폰 있는지 확인 //user coupon쪽 엔티티 동작하는법 고유 쿠폰 코드 확인
         try {
             couponIssueService.saveUserCoupon(UserCoupon.builder()
                     .userId(event.userId())
