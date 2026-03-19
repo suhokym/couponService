@@ -3,9 +3,13 @@ package com.eCommerce.couponDomain.service;
 import com.eCommerce.couponDomain.dto.CouponIssueEventDto;
 import com.eCommerce.couponDomain.dto.CouponIssueRequestDto;
 import com.eCommerce.couponDomain.entity.*;
+import com.eCommerce.couponDomain.entity.enums.EventProcessingStatus;
+import com.eCommerce.couponDomain.entity.enums.IssueRequestStatus;
 import com.eCommerce.couponDomain.exception.CouponIssueException;
 import com.eCommerce.couponDomain.exception.ErrorCode;
 import com.eCommerce.couponDomain.repository.*;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,7 +24,7 @@ public class CouponIssueService {
     private final CouponIssueRequestRepository couponIssueRequestRepository;
     private final CouponEventLogRepository couponEventLogRepository;
     private final UserCouponRepository userCouponRepository;
-
+    private final ObjectMapper objectMapper;
 
 
     //쿠폰 발급
@@ -44,10 +48,10 @@ public class CouponIssueService {
 
     }
 
-    @Transactional(readOnly = true)
-    public CouponIssueRequest findCouponIssueRequest(long requestId) {
-        return couponIssueRequestRepository.findById(requestId);
-    }
+//    @Transactional(readOnly = true)
+//    public CouponIssueRequest findCouponIssueRequest(long requestId) {
+//        return couponIssueRequestRepository.findById(requestId);
+//    }
 
     @Transactional
     public void saveUserCoupon(UserCoupon event) {
@@ -80,10 +84,31 @@ public class CouponIssueService {
 
     }
 
+    @Transactional
+    public void saveIssueRequestAndEventLog(Long couponId, String userId) {
 
+        CouponCampaign coupon = findCoupon(couponId);
+        CouponIssueEventDto couponIssueEventDto = new CouponIssueEventDto(couponId,userId);
+        checkAlreadyRequested(couponIssueEventDto); //이미 발급된 경우 throw
 
+        CouponIssueRequest issueRequest = CouponIssueRequest
+                .builder()
+                .userId(userId)
+                .campaign(coupon)
+                .status(IssueRequestStatus.REQUESTED)
+                .build();
+        saveCouponIssueRequest(issueRequest);//request저장
 
-
-
-
+        try {
+            saveCouponEventLog(
+                    CouponEventLog
+                            .builder()
+                            .request(issueRequest)
+                            .payload(objectMapper.writeValueAsString(couponIssueEventDto))
+                            .processingStatus(EventProcessingStatus.PROGRESS).build());//eventlog저장
+        } catch (
+                JsonProcessingException e) {
+            throw new CouponIssueException(ErrorCode.FAIL_COUPON_EVENT_LOG_ISSUE,"이벤트 로그에 저장을 실패했습니다 issueRequest: %s".formatted(issueRequest.getRequestId()));
+        }
+    }
 }
