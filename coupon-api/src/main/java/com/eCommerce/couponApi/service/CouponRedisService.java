@@ -42,7 +42,7 @@ public class CouponRedisService {
 
             });
 
-
+            //이때 내가 해야할일 issuerequest와 couponeventlog에 저장
         }
 
 

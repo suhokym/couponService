@@ -1,16 +1,11 @@
 package com.eCommerce.couponDomain.service;
 
+import com.eCommerce.couponDomain.dto.CouponIssueEventDto;
 import com.eCommerce.couponDomain.dto.CouponIssueRequestDto;
-import com.eCommerce.couponDomain.entity.CouponCampaign;
-import com.eCommerce.couponDomain.entity.CouponEventLog;
-import com.eCommerce.couponDomain.entity.CouponIssueRequest;
-import com.eCommerce.couponDomain.entity.UserCoupon;
+import com.eCommerce.couponDomain.entity.*;
 import com.eCommerce.couponDomain.exception.CouponIssueException;
 import com.eCommerce.couponDomain.exception.ErrorCode;
-import com.eCommerce.couponDomain.repository.CouponCampaignJpaRepository;
-import com.eCommerce.couponDomain.repository.CouponEventLogRepository;
-import com.eCommerce.couponDomain.repository.CouponIssueRequestRepository;
-import com.eCommerce.couponDomain.repository.UserCouponRepository;
+import com.eCommerce.couponDomain.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,6 +20,7 @@ public class CouponIssueService {
     private final CouponIssueRequestRepository couponIssueRequestRepository;
     private final CouponEventLogRepository couponEventLogRepository;
     private final UserCouponRepository userCouponRepository;
+
 
 
     //쿠폰 발급
@@ -48,6 +44,11 @@ public class CouponIssueService {
 
     }
 
+    @Transactional(readOnly = true)
+    public CouponIssueRequest findCouponIssueRequest(long requestId) {
+        return couponIssueRequestRepository.findById(requestId);
+    }
+
     @Transactional
     public void saveUserCoupon(UserCoupon event) {
         try {
@@ -59,14 +60,26 @@ public class CouponIssueService {
     }
 
     @Transactional
-    public void saveCouponEventLong(CouponEventLog event) {
+    public void saveCouponEventLog(CouponEventLog event) {
         try {
             couponEventLogRepository.save(event);
         }catch (Exception e) {
-            throw new CouponIssueException(ErrorCode.COUPON_NOT_EXIST, "쿠폰 발급에 실패했습니다");
+            throw new CouponIssueException(ErrorCode.COUPON_NOT_EXIST, "쿠폰 이벤트 로그 발급에 실패했습니다");
         }
 
     }
+
+    //이미 발급된 경우 비즈니스 오류 userCoupon을 기준으로 해야함
+    public void checkAlreadyRequested(CouponIssueEventDto event) {
+        CouponIssueRequest issueRequest = couponIssueRequestRepository.findByRequestIdAndUserId(event.couponId(),event.userId());
+        if(issueRequest != null) {
+            throw new CouponIssueException(ErrorCode.FAIL_COUPON_ISSUE_REQUEST, "이미 쿠폰 대기열 발급이 되었습니다 couponId=%d userId=%s"
+                    .formatted(event.couponId(),event.userId()));
+
+        }
+
+    }
+
 
 
 

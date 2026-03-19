@@ -6,5 +6,6 @@ package com.eCommerce.couponDomain.entity.enums;
 public enum EventProcessingStatus {
     SUCCESS, // 이벤트 처리 성공
     FAILED,  // 이벤트 처리 실패
+    PROGRESS, //이벤트 처리 중
     RETRYING // 재시도 중
 }
