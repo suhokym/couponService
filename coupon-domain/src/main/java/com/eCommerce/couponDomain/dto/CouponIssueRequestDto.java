@@ -7,7 +7,7 @@ import java.time.LocalDateTime;
 
 public record CouponIssueRequestDto(
         Long requestId,
-        Long userId,
+        String userId,
         Long campaignId,
         IssueRequestStatus status,
         String failReason,

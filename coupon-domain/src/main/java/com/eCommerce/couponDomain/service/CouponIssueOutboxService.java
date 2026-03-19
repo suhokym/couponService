@@ -25,44 +25,13 @@ public class CouponIssueOutboxService {
 
 
     private final OutboxEventRepository outboxEventRepository;
-    private final CouponIssueService couponIssueService;
-    private final ObjectMapper objectMapper;
 
 
 
-    //아웃박스 저장하는 로직 스케쥴러는 consumer에서 받음
+    //아웃박스 저장하는 로직 모든 저장이 완료 되거나 실패하면
     public void saveIssueRequestWithOutbox(CouponIssueEventDto event, CouponCampaign campaign) {
 
 
-        couponIssueService.checkAlreadyRequested(event); //이미 발급된 경우 throw
-
-            CouponIssueRequest issueRequest = CouponIssueRequest
-                    .builder()
-                    .userId(event.userId())
-                    .campaign(campaign)
-                    .status(IssueRequestStatus.REQUESTED)
-                    .build();
-        couponIssueService.saveCouponIssueRequest(issueRequest);//request저장
-
-        try {
-            couponIssueService.saveCouponEventLog(
-                    CouponEventLog
-                            .builder()
-                            .request(issueRequest)
-                            .payload(objectMapper.writeValueAsString(event))
-                            .processingStatus(EventProcessingStatus.PROGRESS).build());//eventlog저장
-        } catch (JsonProcessingException e) {
-            throw new CouponIssueException(ErrorCode.FAIL_COUPON_EVENT_LOG_ISSUE,"이벤트 로그에 저장을 실패했습니다 issueRequest: %s".formatted(issueRequest.getRequestId()));
-        }
-
-
-        saveOutbox(
-                OutboxEvent
-                        .builder()
-                        .aggregateType("CouponIssueRequest")
-                        .aggregateId(issueRequest.getRequestId())
-                        .eventType("COUPON_ISSUED")
-                        .build());//outbox저장
 
 
 
