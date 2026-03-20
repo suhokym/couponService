@@ -12,11 +12,14 @@ spring:
       connection-timeout: 3000
   jpa:
     hibernate:
-      ddl-auto: none
+      ddl-auto: create
     show-sql: true
     properties:
       hibernate:
         format_sql: true
+  sql:
+    init:
+      mode: always
   data:
     redis:
       host: localhost
