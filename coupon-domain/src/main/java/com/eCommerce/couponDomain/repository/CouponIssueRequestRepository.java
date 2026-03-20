@@ -9,6 +9,7 @@ import java.util.Optional;
 
 public interface CouponIssueRequestRepository extends JpaRepository<CouponIssueRequest, Long> {
 
-    @Query("select ci from CouponIssueRequest ci where ci.campaign.couponId = :campaignId and ci.userId = :userId")
-    CouponIssueRequest findByRequestIdAndUserId(@Param("campaignId") long campaignId, @Param("userId") String userId);
+    CouponIssueRequest findByCampaign_CouponIdAndUserId(Long couponId, String userId);
+
+    Optional<CouponIssueRequest> findByRequestId(Long requestId);
 }

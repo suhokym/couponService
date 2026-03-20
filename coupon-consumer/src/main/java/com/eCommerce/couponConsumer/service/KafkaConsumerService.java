@@ -34,6 +34,7 @@ public class KafkaConsumerService {
         CouponCampaign campaign = couponIssueService.findCoupon(event.couponId());
         couponIssueService.checkAlreadyEvent(event.couponIssueRequestId());
         //실제 유저 쿠폰 있는지 확인 //user coupon쪽 엔티티 동작하는법 고유 쿠폰 코드 확인
+        couponIssueService.checkAlreadyIssuedUserCoupon(event.couponId(), event.userId(), event.couponIssueRequestId());
         try {
             couponIssueService.saveUserCoupon(UserCoupon.builder()
                     .userId(event.userId())
@@ -48,7 +49,7 @@ public class KafkaConsumerService {
         }
 
         //여기서 실제 발급 처리
-        //    -user coupon 저장 request,event상태 변경 처리성공 변경
+        //    -user coupon 저장 request,event상태 변경 처리성공 변경do
         //1. 실제 유저 쿠폰이 있는 경우 익셉션아님 그냥 실패처리
         //    request,event상태 변경 처리성공 변경
         //2. 일시적 오류시 익셉션 처리

@@ -53,4 +53,11 @@ public class CouponEventLog {
     public void updateStatus(EventProcessingStatus status) {
         this.processingStatus = status;
     }
+
+    public void updateRetryStatus() {
+        this.processingStatus = EventProcessingStatus.RETRYING;
+    }
+    public void updatefailedStatus() {
+        this.processingStatus = EventProcessingStatus.FAILED;
+    }
 }

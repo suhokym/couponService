@@ -44,4 +44,17 @@ public class CouponIssueRequest extends BaseTimeEntity {
         this.status = status;
     }
 
+    public void updateRetryCount(int retryCount) {
+        this.status = IssueRequestStatus.RETRYING;
+        this.retryCount = retryCount;
+    }
+    public void updateAllFail(String failReason) {
+        this.failReason = failReason;
+        this.status = IssueRequestStatus.FAILED_FATAL;
+    }
+    public void faliedBusiness(String failReason) {
+        this.failReason = failReason;
+        this.status = IssueRequestStatus.FAILED_FATAL;
+    }
+
 }

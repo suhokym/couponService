@@ -7,7 +7,7 @@ public class KafkaProducingService {
 
     }
 
-    public void cosumeIssueCompleteFailed(){
+    public void cosumeIssueAllFailed(){
 
     }
 }

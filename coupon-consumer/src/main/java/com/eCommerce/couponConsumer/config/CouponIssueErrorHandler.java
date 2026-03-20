@@ -1,9 +1,13 @@
 package com.eCommerce.couponConsumer.config;
 
+import com.eCommerce.couponConsumer.service.KafkaProducingService;
 import com.eCommerce.couponDomain.dto.CouponIssueEventDto;
 import com.eCommerce.couponDomain.exception.CouponIssueException;
+import com.eCommerce.couponDomain.service.CouponIssueService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -13,7 +17,12 @@ import org.springframework.util.backoff.FixedBackOff;
 
 @Slf4j
 @Configuration
+@RequiredArgsConstructor
 public class CouponIssueErrorHandler {
+
+    private final CouponIssueService couponIssueService;
+
+    private final KafkaProducingService kafkaProducingService;
 
 
     @Bean
@@ -29,7 +38,9 @@ public class CouponIssueErrorHandler {
 
                             // 여기서 원하는 로직 실행
                             // 예: FAILED_FATAL 상태 저장, 알림 등
-
+                            CouponIssueEventDto event = (CouponIssueEventDto) record.value();
+                            couponIssueService.allFailed(exception.getMessage(),event.couponIssueRequestId());
+                            kafkaProducingService.cosumeIssueAllFailed();
                             // DLT로 전송
                             super.accept(record, exception);
                         }
@@ -41,8 +52,11 @@ public class CouponIssueErrorHandler {
         defaultErrorHandler.setRetryListeners(((record, ex, deliveryAttempt) -> {
             log.warn("재시도 {}/3 - topic: {}, key: {}, error: {}",
                     deliveryAttempt, record.topic(), record.key(), ex.getMessage());
-
             //재시도 시 로직
+            // 1. IssueRequest 재시도 로직 실행
+            // 2. eventLog 재시도중 으로 변경
+            CouponIssueEventDto event = (CouponIssueEventDto) record.value();
+            couponIssueService.UpdateRetry(event.couponIssueRequestId(), deliveryAttempt);
 
 
         }));

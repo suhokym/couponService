@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
@@ -96,6 +97,27 @@ public class CouponIssueService {
 
     }
 
+    @Transactional
+    public void UpdateRetry(Long IssueRequestId, int count){
+        Optional<CouponIssueRequest> issueRequestOptional = couponIssueRequestRepository.findById(IssueRequestId);
+
+        CouponIssueRequest couponIssueRequest = issueRequestOptional
+                .orElseThrow(() ->
+                        new CouponIssueException(
+                                ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND,
+                                "존재하지 않는 발급요청 입니다 requestId: %d".formatted(IssueRequestId)));
+
+        couponIssueRequest.updateRetryCount(count);
+
+        Optional<CouponEventLog> byRequestRequestId = couponEventLogRepository.findByRequest_RequestId(couponIssueRequest.getRequestId());
+        CouponEventLog couponEventLog = byRequestRequestId.orElseThrow(() ->
+                new CouponIssueException(
+                        ErrorCode.FAIL_COUPON_EVENT_LOG_ISSUE,
+                        "존재하지 않는 발급요청 이벤트 입니다 requestId: %d".formatted(IssueRequestId)));
+        couponEventLog.updateRetryStatus();
+
+    }
+
 
     @Transactional
     public Long saveIssueRequestAndEventLog(Long couponId, String userId, String topic) {
@@ -127,6 +149,43 @@ public class CouponIssueService {
         }
 
     }
+    @Transactional(readOnly = true)
+    public void checkAlreadyIssuedUserCoupon(Long couponId, String userId,Long issueRequestId) {
+        if(userCouponRepository.existsByCampaignIdAndUserId(couponId,userId)){
+            failAlreadyHadUserCoupon(issueRequestId);
+            throw new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE, "이미 발급된 쿠폰입니다");
+        }
+    }
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void failAlreadyHadUserCoupon(Long issueRequestId) {
+        // 별도 트랜잭션이라 예외 영향 안 받음
+        CouponIssueRequest request = couponIssueRequestRepository.findByRequestId(issueRequestId)
+                .orElseThrow(() -> new CouponIssueException(
+                        ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND,
+                        "존재하지 않는 발급요청 입니다 requestId: %d".formatted(issueRequestId)));
+        request.faliedBusiness("이미 발급된 쿠폰입니다.");
+    }
+
+    @Transactional
+    public void allFailed(String failReason,Long IssueRequestId) {
+        Optional<CouponIssueRequest> issueRequestOptional = couponIssueRequestRepository.findById(IssueRequestId);
+
+        CouponIssueRequest couponIssueRequest = issueRequestOptional
+                .orElseThrow(() ->
+                        new CouponIssueException(
+                                ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND,
+                                "존재하지 않는 발급요청 입니다 requestId: %d".formatted(IssueRequestId)));
+
+        couponIssueRequest.updateAllFail(failReason);
+
+        Optional<CouponEventLog> byRequestRequestId = couponEventLogRepository.findByRequest_RequestId(couponIssueRequest.getRequestId());
+        CouponEventLog couponEventLog = byRequestRequestId.orElseThrow(() ->
+                new CouponIssueException(
+                        ErrorCode.FAIL_COUPON_EVENT_LOG_ISSUE,
+                        "존재하지 않는 발급요청 이벤트 입니다 requestId: %d".formatted(IssueRequestId)));
+        couponEventLog.updatefailedStatus();
+
+    }
 
     @Transactional(readOnly = true)
     public void checkAlreadyEvent(Long issueRequestId) {
@@ -142,7 +201,7 @@ public class CouponIssueService {
     @Transactional(readOnly = true)
     //이미 발급된 경우 비즈니스 오류 userCoupon을 기준으로 해야함
     public void checkAlreadyRequested(Long couponId, String userId) {
-        CouponIssueRequest issueRequest = couponIssueRequestRepository.findByRequestIdAndUserId(couponId, userId);
+        CouponIssueRequest issueRequest = couponIssueRequestRepository.findByCampaign_CouponIdAndUserId(couponId, userId);
         if(issueRequest != null) {
             throw new CouponIssueException(ErrorCode.FAIL_COUPON_ISSUE_REQUEST, "이미 쿠폰 대기열 발급이 되었습니다 couponId=%d userId=%s"
                     .formatted(couponId, userId));
