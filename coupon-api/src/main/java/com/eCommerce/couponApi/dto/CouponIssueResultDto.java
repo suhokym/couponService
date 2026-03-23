@@ -1,6 +1,6 @@
 package com.eCommerce.couponApi.dto;
 
-import com.eCommerce.couponApi.repository.redisDto.CouponIssueReqeustCode;
+import com.eCommerce.couponApi.repository.redisDto.CouponIssueRequestCode;
 
-public record CouponIssueResultDto(CouponIssueReqeustCode code, Long requestId) {
+public record CouponIssueResultDto(CouponIssueRequestCode code, Long requestId) {
 }

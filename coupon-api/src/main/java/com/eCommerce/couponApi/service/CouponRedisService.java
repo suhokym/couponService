@@ -3,7 +3,7 @@ package com.eCommerce.couponApi.service;
 
 import com.eCommerce.couponApi.dto.CouponIssueResultDto;
 import com.eCommerce.couponApi.repository.RedisRepository;
-import com.eCommerce.couponApi.repository.redisDto.CouponIssueReqeustCode;
+import com.eCommerce.couponApi.repository.redisDto.CouponIssueRequestCode;
 import com.eCommerce.couponApi.repository.redisDto.CouponRedisEntity;
 import com.eCommerce.couponApi.util.CouponRedisUtil;
 import com.eCommerce.couponDomain.entity.CouponEventLog;
@@ -40,9 +40,9 @@ public class CouponRedisService {
 
 
                 return redisRepository.issueRequest(couponId, userId, couponCache.totalQuantity())
-                        .doOnNext(CouponIssueReqeustCode::checkRequestResult)
+                        .doOnNext(CouponIssueRequestCode::checkRequestResult)
                         .flatMap(code -> {
-                            if (code == CouponIssueReqeustCode.SUCCESS) {
+                            if (code == CouponIssueRequestCode.SUCCESS) {
                                 return Mono.fromCallable(() ->{
                                     Long requestId = couponIssueService.saveIssueRequestAndEventLog(couponCache.id(), userId, FIRST_COME_TOPIC);
                                     return new CouponIssueResultDto(code, requestId);
@@ -59,8 +59,8 @@ public class CouponRedisService {
 //                    }
 //                    return redisRepository.sAdd(getIssuedCouponUsers(couponId), userId)
 //                            .map(i -> String.valueOf(i))
-//                            .map(CouponIssueReqeustCode::findCode)
-//                            .doOnNext(CouponIssueReqeustCode::checkRequestResult);
+//                            .map(CouponIssueRequestCode::findCode)
+//                            .doOnNext(CouponIssueRequestCode::checkRequestResult);
 //                });
 //            }
 

@@ -7,7 +7,7 @@ import java.time.LocalDateTime;
 
 public record UserCouponDto(
         Long userCouponId,
-        Long userId,
+        String userId,
         Long campaignId,
         String couponCode,
         UserCouponStatus status,

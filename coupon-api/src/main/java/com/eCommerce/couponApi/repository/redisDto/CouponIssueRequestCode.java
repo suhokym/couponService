@@ -5,35 +5,35 @@ import com.eCommerce.couponDomain.exception.ErrorCode;
 import reactor.core.publisher.Mono;
 
 
-public enum CouponIssueReqeustCode {
+public enum CouponIssueRequestCode {
     FAIL(0),
     SUCCESS(1),
     DUPLICATE_COUPON_ISSUE(2),
     INVALID_COUPON_ISSUE_QUANTITY(3);
 
-    CouponIssueReqeustCode(int code) {
+    CouponIssueRequestCode(int code) {
 
     }
 
-    public static CouponIssueReqeustCode findCode(String code) {
+    public static CouponIssueRequestCode findCode(String code) {
         int codeVal = Integer.parseInt(code);
         if (codeVal == 0) {
-            return CouponIssueReqeustCode.FAIL;
+            return CouponIssueRequestCode.FAIL;
         }
         if (codeVal == 1) {
-            return CouponIssueReqeustCode.SUCCESS;
+            return CouponIssueRequestCode.SUCCESS;
         }
         if (codeVal == 2) {
-            return CouponIssueReqeustCode.DUPLICATE_COUPON_ISSUE;
+            return CouponIssueRequestCode.DUPLICATE_COUPON_ISSUE;
         }
         if (codeVal == 3) {
-            return CouponIssueReqeustCode.INVALID_COUPON_ISSUE_QUANTITY;
+            return CouponIssueRequestCode.INVALID_COUPON_ISSUE_QUANTITY;
         }
         throw new IllegalArgumentException("존재하지 않는 코드입니다. %s".formatted(codeVal));
 
     }
 
-    public static void checkRequestResult(CouponIssueReqeustCode code) {
+    public static void checkRequestResult(CouponIssueRequestCode code) {
 
         if (code == FAIL) {
             throw new CouponIssueException(ErrorCode.FAIL_COUPON_ISSUE_REQUEST,

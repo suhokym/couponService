@@ -1,6 +1,6 @@
 package com.eCommerce.couponApi.repository;
 
-import com.eCommerce.couponApi.repository.redisDto.CouponIssueReqeustCode;
+import com.eCommerce.couponApi.repository.redisDto.CouponIssueRequestCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 
@@ -38,7 +38,7 @@ public class RedisRepository {
         return redisTemplate.opsForValue().set(key, value, ttl);
     }
 
-    public Mono<CouponIssueReqeustCode> issueRequest(long couponId, String userId, int totalIssueQuantity){
+    public Mono<CouponIssueRequestCode> issueRequest(long couponId, String userId, int totalIssueQuantity){
         String IssueCouponKey = getIssuedCouponUsers(couponId);
 
             return redisTemplate.execute(
@@ -49,8 +49,8 @@ public class RedisRepository {
 
             )
                     .next()
-                    .map(CouponIssueReqeustCode::findCode)
-                    .doOnNext(CouponIssueReqeustCode::checkRequestResult)
+                    .map(CouponIssueRequestCode::findCode)
+                    .doOnNext(CouponIssueRequestCode::checkRequestResult)
                     .onErrorMap(e ->new RuntimeException("Redis 실행 오류: " + e.getMessage()));
 
     }

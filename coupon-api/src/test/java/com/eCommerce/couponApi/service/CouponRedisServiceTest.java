@@ -1,7 +1,7 @@
 package com.eCommerce.couponApi.service;
 
 import com.eCommerce.couponApi.repository.RedisRepository;
-import com.eCommerce.couponApi.repository.redisDto.CouponIssueReqeustCode;
+import com.eCommerce.couponApi.repository.redisDto.CouponIssueRequestCode;
 import com.eCommerce.couponApi.repository.redisDto.CouponRedisEntity;
 import com.eCommerce.couponDomain.entity.enums.CampaignStatus;
 import com.eCommerce.couponDomain.entity.enums.CampaignType;
@@ -60,13 +60,13 @@ class CouponRedisServiceTest {
         given(couponCacheService.getCouponCache(1L))
                 .willReturn(Mono.just(firstComeCoupon));
         given(redisRepository.issueRequest(1L, "user1", 100))
-                .willReturn(Mono.just(CouponIssueReqeustCode.SUCCESS));
+                .willReturn(Mono.just(CouponIssueRequestCode.SUCCESS));
         given(couponIssueService.saveIssueRequestAndEventLog(1L, "user1", "coupon-issue-requested"))
                 .willReturn(1L);
 
         // when & then
         StepVerifier.create(couponRedisService.issue(1L, "user1"))
-                .expectNextMatches(result -> result.code() == CouponIssueReqeustCode.SUCCESS
+                .expectNextMatches(result -> result.code() == CouponIssueRequestCode.SUCCESS
                         && result.requestId() == 1L)
                 .verifyComplete();
 
@@ -80,7 +80,7 @@ class CouponRedisServiceTest {
         given(couponCacheService.getCouponCache(1L))
                 .willReturn(Mono.just(firstComeCoupon));
         given(redisRepository.issueRequest(1L, "user1", 100))
-                .willReturn(Mono.just(CouponIssueReqeustCode.DUPLICATE_COUPON_ISSUE));
+                .willReturn(Mono.just(CouponIssueRequestCode.DUPLICATE_COUPON_ISSUE));
 
         // when & then
         StepVerifier.create(couponRedisService.issue(1L, "user1"))
@@ -98,7 +98,7 @@ class CouponRedisServiceTest {
         given(couponCacheService.getCouponCache(1L))
                 .willReturn(Mono.just(firstComeCoupon));
         given(redisRepository.issueRequest(1L, "user1", 100))
-                .willReturn(Mono.just(CouponIssueReqeustCode.INVALID_COUPON_ISSUE_QUANTITY));
+                .willReturn(Mono.just(CouponIssueRequestCode.INVALID_COUPON_ISSUE_QUANTITY));
 
         // when & then
         StepVerifier.create(couponRedisService.issue(1L, "user1"))
@@ -115,7 +115,7 @@ class CouponRedisServiceTest {
         given(couponCacheService.getCouponCache(1L))
                 .willReturn(Mono.just(firstComeCoupon));
         given(redisRepository.issueRequest(1L, "user1", 100))
-                .willReturn(Mono.just(CouponIssueReqeustCode.SUCCESS));
+                .willReturn(Mono.just(CouponIssueRequestCode.SUCCESS));
         given(couponIssueService.saveIssueRequestAndEventLog(1L, "user1", "coupon-issue-requested"))
                 .willThrow(new RuntimeException("DB 연결 실패"));
 
