@@ -115,6 +115,30 @@ POST /api/issue
 }
 ```
 
+### 어드민 API (coupon-admin)
+
+**캠페인 관리**
+
+```
+GET    /admin/campaigns              - 전체 캠페인 목록
+POST   /admin/campaigns              - 캠페인 생성
+GET    /admin/campaigns/{id}         - 캠페인 상세
+PATCH  /admin/campaigns/{id}/status  - 캠페인 상태 변경 (ACTIVE / INACTIVE / ENDED)
+```
+
+**발급 요청 모니터링**
+
+```
+GET    /admin/issue-requests         - 발급 요청 목록 (?status= 필터)
+GET    /admin/issue-requests/{id}    - 발급 요청 상세
+```
+
+**유저 쿠폰 모니터링**
+
+```
+GET    /admin/user-coupons           - 유저 쿠폰 목록 (?userId= 필터)
+```
+
 ## 도메인 모델
 
 ```
