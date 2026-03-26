@@ -15,5 +15,11 @@ dependencies {
     // Swagger UI (OpenAPI)
     implementation 'org.springdoc:springdoc-openapi-starter-webflux-ui:2.8.3'
 
+    // Lettuce connection pool 활성화 (commons-pool2 없으면 application.yml의 pool 설정 무시됨)
+    implementation 'org.apache.commons:commons-pool2'
+
+    // 로컬 캐시 (Caffeine)
+    implementation 'com.github.ben-manes.caffeine:caffeine'
+
     testImplementation 'io.projectreactor:reactor-test'
 }

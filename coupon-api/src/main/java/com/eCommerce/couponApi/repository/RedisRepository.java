@@ -38,6 +38,16 @@ public class RedisRepository {
         return redisTemplate.opsForValue().set(key, value, ttl);
     }
 
+    // 분산 락 획득 (NX: 키 없을 때만 설정)
+    public Mono<Boolean> tryLock(String lockKey, Duration ttl) {
+        return redisTemplate.opsForValue().setIfAbsent(lockKey, "1", ttl);
+    }
+
+    // 분산 락 해제
+    public Mono<Long> unlock(String lockKey) {
+        return redisTemplate.delete(lockKey);
+    }
+
     public Mono<CouponIssueRequestCode> issueRequest(long couponId, String userId, int totalIssueQuantity){
         String IssueCouponKey = getIssuedCouponUsers(couponId);
 

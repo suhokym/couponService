@@ -1,4 +1,4 @@
-INSERT IGNORE INTO coupon_campaign (coupon_id, name, total_quantity, issued_quantity, type, status, start_at, end_at, created_at, modified_at)
+INSERT IGNORE INTO coupon_campaign (coupon_id, name, total_quantity, issued_quantity, type, status, start_at, end_at, created_at, updated_at)
 VALUES
 (1, '봄맞이 선착순 10% 할인 쿠폰', 10000, 0, 'FIRST_COME', 'ACTIVE', '2026-03-01 00:00:00', '2026-06-30 23:59:59', NOW(), NOW()),
 (2, '신규가입 선착순 5000원 할인 쿠폰', 50000, 0, 'FIRST_COME', 'ACTIVE', '2026-03-01 00:00:00', '2026-12-31 23:59:59', NOW(), NOW()),

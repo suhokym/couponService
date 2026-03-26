@@ -43,37 +43,52 @@ public class CouponIssueService {
 
     @Transactional
     public void saveCouponIssueRequest(CouponIssueRequest event) {
+        // ⚠️ NOTE: DB 제약 위반 전에 명시적으로 필수 필드 누락을 감지하기 위한 사전 검증
+        if (event == null || event.getUserId() == null || event.getCampaign() == null || event.getStatus() == null) {
+            throw new CouponIssueException(ErrorCode.FAIL_COUPON_ISSUE_REQUEST,
+                    "쿠폰 발급 요청 객체의 필수 필드가 누락됐습니다");
+        }
         try {
             couponIssueRequestRepository.save(event);
-        }catch (Exception e) {
-            throw new CouponIssueException(ErrorCode.COUPON_NOT_EXIST, "쿠폰 대기열 발급에 실패했습니다");
+        } catch (Exception e) {
+            throw new CouponIssueException(ErrorCode.FAIL_COUPON_ISSUE_REQUEST, "쿠폰 대기열 발급에 실패했습니다");
         }
-
     }
-
-//    @Transactional(readOnly = true)
-//    public CouponIssueRequest findCouponIssueRequest(long requestId) {
-//        return couponIssueRequestRepository.findById(requestId);
-//    }
 
     @Transactional
     public void saveUserCoupon(UserCoupon event) {
+        // ⚠️ NOTE: couponCode는 UNIQUE 제약 포함 — blank 검증도 추가
+        if (event == null
+                || event.getUserId() == null
+                || event.getCampaign() == null
+                || event.getCouponCode() == null || event.getCouponCode().isBlank()
+                || event.getStatus() == null
+                || event.getExpiredAt() == null) {
+            throw new CouponIssueException(ErrorCode.FAIL_COUPON_ISSUE_REQUEST,
+                    "사용자 쿠폰 객체의 필수 필드가 누락됐습니다");
+        }
         try {
             userCouponRepository.save(event);
-        }catch (Exception e) {
-            throw new CouponIssueException(ErrorCode.COUPON_NOT_EXIST, "쿠폰 발급에 실패했습니다");
+        } catch (Exception e) {
+            throw new CouponIssueException(ErrorCode.FAIL_COUPON_ISSUE_REQUEST, "쿠폰 발급에 실패했습니다");
         }
-
     }
 
     @Transactional
     public void saveCouponEventLog(CouponEventLog event) {
+        // ⚠️ NOTE: eventType은 String이므로 blank까지 검증
+        if (event == null
+                || event.getRequest() == null
+                || event.getEventType() == null || event.getEventType().isBlank()
+                || event.getProcessingStatus() == null) {
+            throw new CouponIssueException(ErrorCode.FAIL_COUPON_EVENT_LOG_ISSUE,
+                    "이벤트 로그 객체의 필수 필드가 누락됐습니다");
+        }
         try {
             couponEventLogRepository.save(event);
-        }catch (Exception e) {
-            throw new CouponIssueException(ErrorCode.COUPON_NOT_EXIST, "쿠폰 이벤트 로그 발급에 실패했습니다");
+        } catch (Exception e) {
+            throw new CouponIssueException(ErrorCode.FAIL_COUPON_EVENT_LOG_ISSUE, "쿠폰 이벤트 로그 발급에 실패했습니다");
         }
-
     }
 
 
@@ -98,34 +113,22 @@ public class CouponIssueService {
     }
 
     @Transactional
-    public void UpdateRetry(Long IssueRequestId, int count){
-        Optional<CouponIssueRequest> issueRequestOptional = couponIssueRequestRepository.findById(IssueRequestId);
-
-        CouponIssueRequest couponIssueRequest = issueRequestOptional
-                .orElseThrow(() ->
-                        new CouponIssueException(
-                                ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND,
-                                "존재하지 않는 발급요청 입니다 requestId: %d".formatted(IssueRequestId)));
-
-        couponIssueRequest.updateRetryCount(count);
-
-        Optional<CouponEventLog> byRequestRequestId = couponEventLogRepository.findByRequest_RequestId(couponIssueRequest.getRequestId());
-        CouponEventLog couponEventLog = byRequestRequestId.orElseThrow(() ->
-                new CouponIssueException(
-                        ErrorCode.FAIL_COUPON_EVENT_LOG_ISSUE,
-                        "존재하지 않는 발급요청 이벤트 입니다 requestId: %d".formatted(IssueRequestId)));
-        couponEventLog.updateRetryStatus();
-
+    public void updateIssuedQuantity(Long couponId){
+        CouponCampaign couponCampaign = couponCampaignJpaRepository.findById(couponId)
+                .orElseThrow(() -> new CouponIssueException(ErrorCode.COUPON_NOT_EXIST, "해당 쿠폰은 존재하지 않습니다 : %d".formatted(couponId)));
+        couponCampaign.updateIssuedQuantity();
     }
+
+
 
 
     @Transactional
     public Long saveIssueRequestAndEventLog(Long couponId, String userId, String topic) {
 
         CouponCampaign coupon = findCoupon(couponId);
+        coupon.validateIssuable(); // 캠페인 상태·기간·수량 2차 검증 (Redis 캐시 불일치 방어)
 
-        checkAlreadyRequested(couponId,userId); //이미 발급된 경우 throw
-
+        // 중복 체크는 Redis Lua script(SISMEMBER)에서 이미 처리 — DB 조회 생략
         CouponIssueRequest issueRequest = CouponIssueRequest
                 .builder()
                 .userId(userId)
@@ -151,7 +154,7 @@ public class CouponIssueService {
     }
     @Transactional(readOnly = true)
     public void checkAlreadyIssuedUserCoupon(Long couponId, String userId,Long issueRequestId) {
-        if(userCouponRepository.existsByCampaignIdAndUserId(couponId,userId)){
+        if(userCouponRepository.existsByCampaign_CouponIdAndUserId(couponId,userId)){
             failAlreadyHadUserCoupon(issueRequestId);
             throw new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE, "이미 발급된 쿠폰입니다");
         }
@@ -164,6 +167,34 @@ public class CouponIssueService {
                         ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND,
                         "존재하지 않는 발급요청 입니다 requestId: %d".formatted(issueRequestId)));
         request.faliedBusiness("이미 발급된 쿠폰입니다.");
+    }
+
+    @Transactional
+    public boolean UpdateRetry(Long IssueRequestId, String reason) {
+        Optional<CouponIssueRequest> issueRequestOptional = couponIssueRequestRepository.findById(IssueRequestId);
+
+        CouponIssueRequest couponIssueRequest = issueRequestOptional
+                .orElseThrow(() ->
+                        new CouponIssueException(
+                                ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND,
+                                "존재하지 않는 발급요청 입니다 requestId: %d".formatted(IssueRequestId)));
+
+        //3번의 실패시 allFailed로 이동
+        if(couponIssueRequest.getRetryCount() >= 3){
+            allFailed(reason,couponIssueRequest.getRequestId());
+            return false;
+        }
+
+        couponIssueRequest.updateRetryCount();
+
+        Optional<CouponEventLog> byRequestRequestId = couponEventLogRepository.findByRequest_RequestId(couponIssueRequest.getRequestId());
+        CouponEventLog couponEventLog = byRequestRequestId.orElseThrow(() ->
+                new CouponIssueException(
+                        ErrorCode.FAIL_COUPON_EVENT_LOG_ISSUE,
+                        "존재하지 않는 발급요청 이벤트 입니다 requestId: %d".formatted(IssueRequestId)));
+        couponEventLog.updateRetryStatus();
+        return true;
+
     }
 
     @Transactional

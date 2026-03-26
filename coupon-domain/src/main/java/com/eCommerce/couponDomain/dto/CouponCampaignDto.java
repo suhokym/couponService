@@ -2,13 +2,16 @@ package com.eCommerce.couponDomain.dto;
 
 import com.eCommerce.couponDomain.entity.CouponCampaign;
 import com.eCommerce.couponDomain.entity.enums.CampaignStatus;
+import com.eCommerce.couponDomain.entity.enums.CampaignType;
 
 import java.time.LocalDateTime;
 
 public record CouponCampaignDto(
-        Long CouponId,
+        Long couponId,
         String name,
-        int totalQuantity,
+        Integer totalQuantity,
+        Integer issuedQuantity,
+        CampaignType type,
         CampaignStatus status,
         LocalDateTime startAt,
         LocalDateTime endAt,
@@ -20,6 +23,8 @@ public record CouponCampaignDto(
                 entity.getCouponId(),
                 entity.getName(),
                 entity.getTotalQuantity(),
+                entity.getIssuedQuantity(),
+                entity.getType(),
                 entity.getStatus(),
                 entity.getStartAt(),
                 entity.getEndAt(),

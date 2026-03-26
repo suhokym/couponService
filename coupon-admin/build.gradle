@@ -6,6 +6,9 @@ dependencies {
     // Web
     implementation 'org.springframework.boot:spring-boot-starter-web'
 
+    // JPA (coupon-domain의 Repository/Entity 직접 사용)
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+
     // Kafka
     implementation 'org.springframework.kafka:spring-kafka'
 

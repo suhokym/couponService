@@ -62,12 +62,12 @@ class KafkaConsumerServiceTest {
 
     @Test
     @DisplayName("정상 흐름: saveUserCoupon, updateCouponEventLog(SUCCESS), updateIssueRequestStatus(ISSUED) 각 1회 호출")
-    void consumeIssueRequest_success() {
+    void consumeFristIssueRequest_success() {
         // given
         given(couponIssueService.findCoupon(100L)).willReturn(campaign);
 
         // when
-        kafkaConsumerService.consumeIssueRequest(event);
+        kafkaConsumerService.consumeFristIssueRequest(event);
 
         // then
         verify(couponIssueService).saveUserCoupon(any());
@@ -77,21 +77,21 @@ class KafkaConsumerServiceTest {
 
     @Test
     @DisplayName("findCoupon 예외 시: 예외 전파, saveUserCoupon never 호출")
-    void consumeIssueRequest_couponNotFound() {
+    void consumeFristIssueRequest_couponNotFound() {
         // given
         willThrow(new CouponIssueException(ErrorCode.COUPON_NOT_EXIST, "존재하지 않는 쿠폰"))
                 .given(couponIssueService).findCoupon(100L);
 
         // when & then
         assertThrows(CouponIssueException.class,
-                () -> kafkaConsumerService.consumeIssueRequest(event));
+                () -> kafkaConsumerService.consumeFristIssueRequest(event));
 
         verify(couponIssueService, never()).saveUserCoupon(any());
     }
 
     @Test
     @DisplayName("checkAlreadyEvent 예외 시: 예외 전파, saveUserCoupon never 호출")
-    void consumeIssueRequest_alreadyEvent() {
+    void consumeFristIssueRequest_alreadyEvent() {
         // given
         given(couponIssueService.findCoupon(100L)).willReturn(campaign);
         willThrow(new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE_EVENT, "이미 처리된 이벤트"))
@@ -99,14 +99,14 @@ class KafkaConsumerServiceTest {
 
         // when & then
         assertThrows(CouponIssueException.class,
-                () -> kafkaConsumerService.consumeIssueRequest(event));
+                () -> kafkaConsumerService.consumeFristIssueRequest(event));
 
         verify(couponIssueService, never()).saveUserCoupon(any());
     }
 
     @Test
     @DisplayName("checkAlreadyIssuedUserCoupon 예외 시: 예외 전파, saveUserCoupon never 호출")
-    void consumeIssueRequest_duplicateUserCoupon() {
+    void consumeFristIssueRequest_duplicateUserCoupon() {
         // given
         given(couponIssueService.findCoupon(100L)).willReturn(campaign);
         willThrow(new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE, "이미 발급된 유저"))
@@ -114,21 +114,21 @@ class KafkaConsumerServiceTest {
 
         // when & then
         assertThrows(CouponIssueException.class,
-                () -> kafkaConsumerService.consumeIssueRequest(event));
+                () -> kafkaConsumerService.consumeFristIssueRequest(event));
 
         verify(couponIssueService, never()).saveUserCoupon(any());
     }
 
     @Test
     @DisplayName("saveUserCoupon 실패 시: 예외 흡수, updateCouponEventLog / updateIssueRequestStatus(ISSUED) never 호출")
-    void consumeIssueRequest_saveUserCouponFails() {
+    void consumeFristIssueRequest_saveUserCouponFails() {
         // given
         given(couponIssueService.findCoupon(100L)).willReturn(campaign);
         willThrow(new RuntimeException("DB 저장 실패"))
                 .given(couponIssueService).saveUserCoupon(any());
 
         // when (catch 블록이 예외를 흡수하므로 예외가 전파되지 않음)
-        kafkaConsumerService.consumeIssueRequest(event);
+        kafkaConsumerService.consumeFristIssueRequest(event);
 
         // then
         verify(couponIssueService, never()).updateCouponEventLog(any(), any());
@@ -137,12 +137,12 @@ class KafkaConsumerServiceTest {
 
     @Test
     @DisplayName("호출 순서 검증: updateIssueRequestStatus(PROCESSING)이 findCoupon보다 먼저 호출")
-    void consumeIssueRequest_processingStatusUpdatedFirst() {
+    void consumeFristIssueRequest_processingStatusUpdatedFirst() {
         // given
         given(couponIssueService.findCoupon(100L)).willReturn(campaign);
 
         // when
-        kafkaConsumerService.consumeIssueRequest(event);
+        kafkaConsumerService.consumeFristIssueRequest(event);
 
         // then
         InOrder inOrder = inOrder(couponIssueService);

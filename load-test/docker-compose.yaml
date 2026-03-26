@@ -1,0 +1,31 @@
+version: '3.7'
+services:
+  # ── WebFlux (coupon-api, port 8081) ──────────────────────────
+  master:
+    image: locustio/locust
+    ports:
+      - "8089:8089"
+    volumes:
+      - ./:/mnt/locust
+    command: -f /mnt/locust/locustfile.py --master -H http://host.docker.internal:8081
+
+  worker:
+    image: locustio/locust
+    volumes:
+      - ./:/mnt/locust
+    command: -f /mnt/locust/locustfile.py --worker --master-host master
+
+  # ── MVC v1 (coupon-api-mvc-v1, port 8084) ────────────────────
+  master-mvc:
+    image: locustio/locust
+    ports:
+      - "8091:8089"
+    volumes:
+      - ./:/mnt/locust
+    command: -f /mnt/locust/locustfile_mvc.py --master -H http://host.docker.internal:8084
+
+  worker-mvc:
+    image: locustio/locust
+    volumes:
+      - ./:/mnt/locust
+    command: -f /mnt/locust/locustfile_mvc.py --worker --master-host master-mvc

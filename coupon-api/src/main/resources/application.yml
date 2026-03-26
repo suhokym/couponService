@@ -7,7 +7,7 @@ spring:
     username: abcd
     password: '1234'
     hikari:
-      maximum-pool-size: 10
+      maximum-pool-size: 50
       max-lifetime: 1800000
       connection-timeout: 3000
   jpa:
@@ -18,6 +18,11 @@ spring:
     redis:
       host: localhost
       port: 6380
+      lettuce:
+        pool:
+          max-active: 50    # 최대 커넥션 수
+          max-idle: 20      # 유휴 커넥션 유지
+          min-idle: 5       # 최소 유휴 커넥션
   kafka:
     bootstrap-servers: localhost:9092
     producer:
@@ -26,6 +31,9 @@ spring:
 
 server:
   port: 8081
+  netty:
+    connection-timeout: 10s
+    max-keep-alive-requests: 10000
 
 springdoc:
   swagger-ui:

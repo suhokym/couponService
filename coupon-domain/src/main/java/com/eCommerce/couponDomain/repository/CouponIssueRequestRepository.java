@@ -1,10 +1,10 @@
 package com.eCommerce.couponDomain.repository;
 
 import com.eCommerce.couponDomain.entity.CouponIssueRequest;
+import com.eCommerce.couponDomain.entity.enums.IssueRequestStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface CouponIssueRequestRepository extends JpaRepository<CouponIssueRequest, Long> {
@@ -12,4 +12,6 @@ public interface CouponIssueRequestRepository extends JpaRepository<CouponIssueR
     CouponIssueRequest findByCampaign_CouponIdAndUserId(Long couponId, String userId);
 
     Optional<CouponIssueRequest> findByRequestId(Long requestId);
+
+    List<CouponIssueRequest> findByStatus(IssueRequestStatus status);
 }

@@ -7,9 +7,11 @@ import reactor.core.publisher.Mono;
 
 public enum CouponIssueRequestCode {
     FAIL(0),
-    SUCCESS(1),
+    SUCCESS_FIRST_COME(1),
     DUPLICATE_COUPON_ISSUE(2),
-    INVALID_COUPON_ISSUE_QUANTITY(3);
+    INVALID_COUPON_ISSUE_QUANTITY(3),
+    SUCCESS_OPEN(4);
+
 
     CouponIssueRequestCode(int code) {
 
@@ -21,7 +23,7 @@ public enum CouponIssueRequestCode {
             return CouponIssueRequestCode.FAIL;
         }
         if (codeVal == 1) {
-            return CouponIssueRequestCode.SUCCESS;
+            return CouponIssueRequestCode.SUCCESS_FIRST_COME;
         }
         if (codeVal == 2) {
             return CouponIssueRequestCode.DUPLICATE_COUPON_ISSUE;
