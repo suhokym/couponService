@@ -4,6 +4,7 @@ import com.eCommerce.couponDomain.dto.CouponIssueEventDto;
 import com.eCommerce.couponDomain.dto.CouponIssueRetryEventDto;
 import com.eCommerce.couponDomain.entity.CouponCampaign;
 import com.eCommerce.couponDomain.entity.UserCoupon;
+import com.eCommerce.couponDomain.entity.enums.CampaignType;
 import com.eCommerce.couponDomain.entity.enums.EventProcessingStatus;
 import com.eCommerce.couponDomain.entity.enums.IssueRequestStatus;
 import com.eCommerce.couponDomain.entity.enums.UserCouponStatus;
@@ -52,7 +53,7 @@ public class KafkaConsumerService {
         if (campaign == null) return;
 
         if (!step2SaveUserCoupon(event, campaign)) return;
-        if (!step3UpdateStatusLogOpen(event)) return;
+        if (!step3UpdateStatusLog(event)) return;
         step4SendCompleteEvent(event);
     }
 
@@ -139,28 +140,6 @@ public class KafkaConsumerService {
         if (!step3UpdateStatusLog(event)) return;
         step4SendCompleteEvent(event);
     }
-    // ── 재시도 리스너: STEP 3 실패 시 재진입 ─────────────────────────────────
-    @KafkaListener(topics = "coupon-issue-retry-step3-open", groupId = "coupon-group-retry")
-    public void retryStep3Open(CouponIssueRetryEventDto retryEvent) {
-        log.info("[RETRY STEP 3] 재시도 진입 - couponIssueRequestId: {}, failReason: {}",
-                retryEvent.couponIssueRequestId(), retryEvent.failReason());
-
-        CouponIssueEventDto event = new CouponIssueEventDto(
-                retryEvent.couponId(), retryEvent.userId(), retryEvent.couponIssueRequestId());
-
-        // ⚠️ NOTE: false 반환 = retryCount >= 3, DB allFailed() 완료
-        //          → allFail 토픽 발행 후 종료
-        boolean canRetry = couponIssueService.UpdateRetry(retryEvent.couponIssueRequestId(), retryEvent.failReason());
-        if (!canRetry) {
-            log.warn("[RETRY STEP 3] 재시도 횟수 초과 - allFail 발행, couponIssueRequestId: {}",
-                    retryEvent.couponIssueRequestId());
-            kafkaProducingService.sendAllFail(event, retryEvent.failReason());
-            return;
-        }
-
-        if (!step3UpdateStatusLogOpen(event)) return;
-        step4SendCompleteEvent(event);
-    }
 
     // ── 재시도 리스너: STEP 4 실패 시 재진입 ─────────────────────────────────
     @KafkaListener(topics = "coupon-issue-retry-step4", groupId = "coupon-group-retry")
@@ -227,32 +206,23 @@ public class KafkaConsumerService {
     }
 
     // ── STEP 3: 상태/로그 업데이트 (이벤트 로그 SUCCESS + 상태 ISSUED + 수량 증가) ──
+    // ⚠️ NOTE: OPEN 타입은 수량 제한이 없으므로 updateIssuedQuantity를 skip한다.
+    //          campaignType을 Kafka 메시지에 싣지 않고 DB(CouponCampaign.type)에서 직접
+    //          조회하는 이유: 메시지 유실·구버전 호환 시에도 항상 정확한 타입을 보장하기 위함.
     private boolean step3UpdateStatusLog(CouponIssueEventDto event) {
         log.info("[STEP 3] 상태/로그 업데이트 시작 - couponIssueRequestId: {}", event.couponIssueRequestId());
         try {
             couponIssueService.updateCouponEventLog(event.couponIssueRequestId(), EventProcessingStatus.SUCCESS);
             couponIssueService.updateIssueRequestStatus(event.couponIssueRequestId(), IssueRequestStatus.ISSUED);
-            couponIssueService.updateIssuedQuantity(event.couponId());
+            CouponCampaign campaign = couponIssueService.findCoupon(event.couponId());
+            if (campaign.getType() != CampaignType.OPEN) {
+                couponIssueService.updateIssuedQuantity(event.couponId());
+            }
             log.info("[STEP 3] 상태/로그 업데이트 완료 - couponIssueRequestId: {}", event.couponIssueRequestId());
             return true;
         } catch (Exception e) {
             log.error("[STEP 3 FAIL] 상태/로그 업데이트 실패 - couponIssueRequestId: {}, cause: {}", event.couponIssueRequestId(), e.getMessage());
             kafkaProducingService.sendRetryStep3(event, e.getMessage());
-            return false;
-        }
-    }
-
-    // ── STEP 3: 상태/로그 업데이트 (이벤트 로그 SUCCESS + 상태 ISSUED) ──
-    private boolean step3UpdateStatusLogOpen(CouponIssueEventDto event) {
-        log.info("[STEP 3] 상태/로그 업데이트 시작 - couponIssueRequestId: {}", event.couponIssueRequestId());
-        try {
-            couponIssueService.updateCouponEventLog(event.couponIssueRequestId(), EventProcessingStatus.SUCCESS);
-            couponIssueService.updateIssueRequestStatus(event.couponIssueRequestId(), IssueRequestStatus.ISSUED);
-            log.info("[STEP 3] 상태/로그 업데이트 완료 - couponIssueRequestId: {}", event.couponIssueRequestId());
-            return true;
-        } catch (Exception e) {
-            log.error("[STEP 3 FAIL] 상태/로그 업데이트 실패 - couponIssueRequestId: {}, cause: {}", event.couponIssueRequestId(), e.getMessage());
-            kafkaProducingService.sendRetryStep3Open(event, e.getMessage());
             return false;
         }
     }

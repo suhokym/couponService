@@ -45,11 +45,6 @@ public class KafkaProducingService {
                 event.couponId(), event.userId(), event.couponIssueRequestId(), failReason);
         retryKafkaTemplate.send("coupon-issue-retry-step3", String.valueOf(event.userId()), retryEvent);
     }
-    public void sendRetryStep3Open(CouponIssueEventDto event, String failReason) {
-        CouponIssueRetryEventDto retryEvent = new CouponIssueRetryEventDto(
-                event.couponId(), event.userId(), event.couponIssueRequestId(), failReason);
-        retryKafkaTemplate.send("coupon-issue-retry-step3-open", String.valueOf(event.userId()), retryEvent);
-    }
 
     public void sendRetryStep4(CouponIssueEventDto event, String failReason) {
         CouponIssueRetryEventDto retryEvent = new CouponIssueRetryEventDto(
