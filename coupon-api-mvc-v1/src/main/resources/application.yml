@@ -1,0 +1,37 @@
+spring:
+  application:
+    name: coupon-api-mvc-v1
+  datasource:
+    url: jdbc:mysql://localhost:3306/coupon?useUnicode=yes&characterEncoding=UTF-8&rewriteBatchedStatements=true&allowPublicKeyRetrieval=true&useSSL=false
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: abcd
+    password: '1234'
+    hikari:
+      maximum-pool-size: 50
+      max-lifetime: 1800000
+      connection-timeout: 3000
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+  data:
+    redis:
+      host: localhost
+      port: 6380
+      lettuce:
+        pool:
+          max-active: 50
+          max-idle: 20
+          min-idle: 5
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+server:
+  port: 8084  # 8081(WebFlux api), 8082(consumer), 8083 사용 중
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html

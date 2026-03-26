@@ -1,0 +1,23 @@
+apply plugin: 'org.springframework.boot'
+
+dependencies {
+    implementation project(':coupon-domain')
+
+    // MVC (blocking)
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    // Redis (블로킹)
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+
+    // Lettuce connection pool 활성화
+    implementation 'org.apache.commons:commons-pool2'
+
+    // Kafka (발급 요청 이벤트 발행)
+    implementation 'org.springframework.kafka:spring-kafka'
+
+    // Swagger UI (OpenAPI)
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.3'
+
+    // 로컬 캐시 (Caffeine)
+    implementation 'com.github.ben-manes.caffeine:caffeine'
+}

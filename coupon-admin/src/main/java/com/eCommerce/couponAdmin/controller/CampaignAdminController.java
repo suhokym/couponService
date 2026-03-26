@@ -1,0 +1,64 @@
+package com.eCommerce.couponAdmin.controller;
+
+import com.eCommerce.couponAdmin.dto.CampaignCreateRequest;
+import com.eCommerce.couponAdmin.dto.CampaignStatusUpdateRequest;
+import com.eCommerce.couponAdmin.service.CampaignAdminService;
+import com.eCommerce.couponDomain.dto.CouponCampaignDto;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@Tag(name = "캠페인 관리", description = "쿠폰 캠페인 생성 및 상태 관리 API")
+@RestController
+@RequestMapping("/admin/campaigns")
+@RequiredArgsConstructor
+public class CampaignAdminController {
+
+    private final CampaignAdminService campaignAdminService;
+
+    /**
+     * 전체 캠페인 목록 조회
+     * GET /admin/campaigns
+     */
+    @Operation(summary = "캠페인 목록 조회")
+    @GetMapping
+    public ResponseEntity<List<CouponCampaignDto>> findAll() {
+        return ResponseEntity.ok(campaignAdminService.findAll());
+    }
+
+    /**
+     * 캠페인 단건 조회
+     * GET /admin/campaigns/{couponId}
+     */
+    @Operation(summary = "캠페인 상세 조회")
+    @GetMapping("/{couponId}")
+    public ResponseEntity<CouponCampaignDto> findById(@PathVariable Long couponId) {
+        return ResponseEntity.ok(campaignAdminService.findById(couponId));
+    }
+
+    /**
+     * 캠페인 생성
+     * POST /admin/campaigns
+     */
+    @Operation(summary = "캠페인 생성", description = "생성 직후 상태는 INACTIVE. 준비 완료 후 ACTIVE로 변경하세요.")
+    @PostMapping
+    public ResponseEntity<CouponCampaignDto> create(@RequestBody CampaignCreateRequest request) {
+        return ResponseEntity.ok(campaignAdminService.create(request));
+    }
+
+    /**
+     * 캠페인 상태 변경 (ACTIVE / INACTIVE / ENDED)
+     * PATCH /admin/campaigns/{couponId}/status
+     */
+    @Operation(summary = "캠페인 상태 변경")
+    @PatchMapping("/{couponId}/status")
+    public ResponseEntity<CouponCampaignDto> updateStatus(
+            @PathVariable Long couponId,
+            @RequestBody CampaignStatusUpdateRequest request) {
+        return ResponseEntity.ok(campaignAdminService.updateStatus(couponId, request));
+    }
+}
