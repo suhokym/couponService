@@ -238,4 +238,11 @@ public class KafkaConsumerService {
             kafkaProducingService.sendRetryStep4(event, e.getMessage());
         }
     }
+
+
+    @KafkaListener(topics = "coupon-issue-complete", groupId = "coupon-group-complete")
+    public void completeIssueCoupon(CouponIssueEventDto completedEvent) {
+            log.info("발급 성공: couponId: %d, userId: %s couponRequestId:%d "
+                    .formatted(completedEvent.couponId(), completedEvent.userId(), completedEvent.couponIssueRequestId()));
+    }
 }

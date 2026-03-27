@@ -27,13 +27,16 @@ public class CouponIssueOutboxService {
     private final OutboxEventRepository outboxEventRepository;
 
 
+
+
+    //아웃 박스 가져오는 로직
     @Transactional(readOnly = true)
-    public List<OutboxEvent> findOutboxPendingOrFailed() {
+    public List<OutboxEvent> findOutbox() {
         return outboxEventRepository.findOutboxPendingOrFailed();
     }
 
 
-
+    //아웃 박스 저장 로직
     @Transactional
     public void saveOutbox(OutboxEvent event) {
         try {

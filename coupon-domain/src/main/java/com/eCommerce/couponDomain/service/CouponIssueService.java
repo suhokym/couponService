@@ -229,17 +229,5 @@ public class CouponIssueService {
 
     }
 
-    @Transactional(readOnly = true)
-    //이미 발급된 경우 비즈니스 오류 userCoupon을 기준으로 해야함
-    public void checkAlreadyRequested(Long couponId, String userId) {
-        CouponIssueRequest issueRequest = couponIssueRequestRepository.findByCampaign_CouponIdAndUserId(couponId, userId);
-        if(issueRequest != null) {
-            throw new CouponIssueException(ErrorCode.FAIL_COUPON_ISSUE_REQUEST, "이미 쿠폰 대기열 발급이 되었습니다 couponId=%d userId=%s"
-                    .formatted(couponId, userId));
-
-        }
-
-    }
-
 
 }

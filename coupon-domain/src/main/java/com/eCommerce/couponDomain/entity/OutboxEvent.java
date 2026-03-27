@@ -28,7 +28,7 @@ public class OutboxEvent extends BaseTimeEntity {
     @Column(nullable = false)
     private String aggregateType; // 이벤트 발생 도메인 (예: CouponIssueRequest)
 
-    @Column(nullable = false)
+    @Column(nullable = false, unique = true)
     private Long aggregateId; // 도메인 엔티티의 PK
 
     @Column(nullable = false)

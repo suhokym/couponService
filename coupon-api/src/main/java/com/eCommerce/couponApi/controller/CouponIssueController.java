@@ -33,11 +33,11 @@ public class CouponIssueController {
                         //          에러 signal이 클라이언트까지 전파되어 데이터 일관성 보장
                         return couponEventProducer.publishFirstCouponIssuedRequest(new CouponIssueKafkaDto(dto.couponId(), dto.userId(), result.requestId()))
                                 // ⑥ Kafka 발행 단계 — KafkaTemplate 발행 오류 식별
-                                .checkpoint("Kafka 이벤트 발행 완료")
+                                .checkpoint("First-Come Kafka 이벤트 발행 완료")
                                 .thenReturn(new CouponIssueResponseDto(result.code().name(), "성공"));
                     }else if (result.code() == CouponIssueRequestCode.SUCCESS_OPEN) {
                         return couponEventProducer.publishOpenCouponIssuedRequest(new CouponIssueKafkaDto(dto.couponId(), dto.userId(), result.requestId()))
-                                .checkpoint("Kafka 이벤트 발행 완료")
+                                .checkpoint("Open Kafka 이벤트 발행 완료")
                                 .thenReturn(new CouponIssueResponseDto(result.code().name(), "성공"));
                     }
                     return Mono.just(new CouponIssueResponseDto(result.code().name(), "발급 불가"));

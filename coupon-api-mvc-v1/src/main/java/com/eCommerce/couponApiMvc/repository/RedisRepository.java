@@ -28,6 +28,8 @@ public class RedisRepository {
         redisTemplate.opsForValue().set(key, value, ttl);
     }
 
+    public void removeMember(String key, String member) {redisTemplate.opsForSet().remove(key, member);}
+
     // 분산 락 획득 (NX: 키 없을 때만 설정)
     public Boolean tryLock(String lockKey, Duration ttl) {
         return redisTemplate.opsForValue().setIfAbsent(lockKey, "1", ttl);
