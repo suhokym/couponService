@@ -6,13 +6,13 @@ import com.eCommerce.couponDomain.entity.CouponCampaign;
 import com.eCommerce.couponDomain.entity.OutboxEvent;
 import com.eCommerce.couponDomain.entity.UserCoupon;
 import com.eCommerce.couponDomain.entity.enums.*;
-import com.eCommerce.couponDomain.service.CouponIssueOutboxService;
+import com.eCommerce.couponDomain.exception.CouponIssueException;
+import com.eCommerce.couponDomain.exception.ErrorCode;
 import com.eCommerce.couponDomain.service.CouponIssueService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -23,9 +23,7 @@ import java.util.UUID;
 @Service
 public class KafkaConsumerService {
 
-    private final KafkaTemplate<String, CouponIssueEventDto> kafkaTemplate;
     private final CouponIssueService couponIssueService;
-    private final CouponIssueOutboxService couponIssueOutboxService;
     private final KafkaProducingService kafkaProducingService;
     private final ObjectMapper objectMapper;
 
@@ -59,7 +57,7 @@ public class KafkaConsumerService {
     }
 
     // ── 재시도 리스너: STEP 1 실패 시 재진입 ─────────────────────────────────
-    @KafkaListener(topics = "coupon-issue-retry-step1", groupId = "coupon-group-retry")
+    @KafkaListener(topics = "coupon-issue-retry-step1", groupId = "coupon-group-retry", containerFactory = "retryContainerFactory")
     public void retryStep1(CouponIssueRetryEventDto retryEvent) {
         log.info("[RETRY STEP 1] 재시도 진입 - couponIssueRequestId: {}, failReason: {}",
                 retryEvent.couponIssueRequestId(), retryEvent.failReason());
@@ -87,7 +85,7 @@ public class KafkaConsumerService {
     }
 
     // ── 재시도 리스너: STEP 2 실패 시 재진입 (캠페인 재조회 후 step2부터) ─────
-    @KafkaListener(topics = "coupon-issue-retry-step2", groupId = "coupon-group-retry")
+    @KafkaListener(topics = "coupon-issue-retry-step2", groupId = "coupon-group-retry",containerFactory = "retryContainerFactory" )
     public void retryStep2(CouponIssueRetryEventDto retryEvent) {
         log.info("[RETRY STEP 2] 재시도 진입 - couponIssueRequestId: {}, failReason: {}",
                 retryEvent.couponIssueRequestId(), retryEvent.failReason());
@@ -120,7 +118,7 @@ public class KafkaConsumerService {
     }
 
     // ── 재시도 리스너: STEP 3 실패 시 재진입 ─────────────────────────────────
-    @KafkaListener(topics = "coupon-issue-retry-step3", groupId = "coupon-group-retry")
+    @KafkaListener(topics = "coupon-issue-retry-step3", groupId = "coupon-group-retry", containerFactory = "retryContainerFactory")
     public void retryStep3(CouponIssueRetryEventDto retryEvent) {
         log.info("[RETRY STEP 3] 재시도 진입 - couponIssueRequestId: {}, failReason: {}",
                 retryEvent.couponIssueRequestId(), retryEvent.failReason());
@@ -143,7 +141,7 @@ public class KafkaConsumerService {
     }
 
     // ── 재시도 리스너: STEP 4 실패 시 재진입 ─────────────────────────────────
-    @KafkaListener(topics = "coupon-issue-retry-step4", groupId = "coupon-group-retry")
+    @KafkaListener(topics = "coupon-issue-retry-step4", groupId = "coupon-group-retry", containerFactory = "retryContainerFactory")
     public void retryStep4(CouponIssueRetryEventDto retryEvent) {
         log.info("[RETRY STEP 4] 재시도 진입 - couponIssueRequestId: {}, failReason: {}",
                 retryEvent.couponIssueRequestId(), retryEvent.failReason());
@@ -179,7 +177,21 @@ public class KafkaConsumerService {
             couponIssueService.checkAlreadyIssuedUserCoupon(event.couponId(), event.userId(), event.couponIssueRequestId());
             log.info("[STEP 1] 사전 검증 완료 - campaignName: {}", campaign.getName());
             return campaign;
-        } catch (Exception e) {
+        } catch (CouponIssueException e) {
+            if (e.getErrorCode() == ErrorCode.DUPLICATED_COUPON_ISSUE_EVENT) {
+                // 이미 처리된 요청 → 멱등성 보장, retry 없이 종료
+                log.info("[STEP 1] 이미 처리된 요청 - skip, couponIssueRequestId: {}", event.couponIssueRequestId());
+                return null;
+            }
+            if (e.getErrorCode() == ErrorCode.DUPLICATED_COUPON_ISSUE) {
+                // 이미 처리된 요청 → 멱등성 보장, retry 없이 종료
+                log.info("[STEP 1] 이미 처리된 요청 - skip, couponIssueRequestId: {}", event.couponIssueRequestId());
+                return null;
+            }
+            log.error("[STEP 1 FAIL] 사전 검증 실패 - couponIssueRequestId: {}, cause: {}", event.couponIssueRequestId(),e.getMessage());
+            kafkaProducingService.sendRetryStep1(event, e.getMessage());
+            return null;
+        }catch (Exception e) {
             log.error("[STEP 1 FAIL] 사전 검증 실패 - couponIssueRequestId: {}, cause: {}", event.couponIssueRequestId(), e.getMessage());
             kafkaProducingService.sendRetryStep1(event, e.getMessage());
             return null;
@@ -253,6 +265,14 @@ public class KafkaConsumerService {
             log.info("발급 성공: couponId: %d, userId: %s couponRequestId:%d "
                     .formatted(completedEvent.couponId(), completedEvent.userId(), completedEvent.couponIssueRequestId()));
     }
+
+
+
+    @KafkaListener(topics = "coupon-issue-all-fail", groupId = "coupon-group-all-fail", containerFactory = "retryContainerFactory")
+    public void issueAllfail(CouponIssueRetryEventDto retryEvent) {
+        //비정상 상황
+    }
+
 
 
 }

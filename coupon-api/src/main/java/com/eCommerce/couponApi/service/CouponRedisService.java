@@ -49,6 +49,7 @@ public class CouponRedisService {
                });
     }
 
+    ///  오픈일때 문제점: 지금 조금이라도 올라가면 커넥션 오류뜸 redis에 저장하는 다른 로직을 만들고 카프카로 보내기
     public Mono<CouponIssueResultDto> issueOpenCoupon(long couponId, String userId){
         String OPEN_COUPON_TOPIC = "open-coupon-issue-requested";
         return Mono.fromCallable(() -> {

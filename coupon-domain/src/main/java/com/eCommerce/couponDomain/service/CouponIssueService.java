@@ -190,7 +190,7 @@ public class CouponIssueService {
             return false;
         }
 
-        couponIssueRequest.updateRetryCount();
+        couponIssueRequest.updateRetryCount(reason);
 
         Optional<CouponEventLog> byRequestRequestId = couponEventLogRepository.findByRequest_RequestId(couponIssueRequest.getRequestId());
         CouponEventLog couponEventLog = byRequestRequestId.orElseThrow(() ->

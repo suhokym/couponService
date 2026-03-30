@@ -22,12 +22,8 @@ public class RedisRepository {
 
      private RedisScript<String> issueScript = checkIssueScript();
 
-    public Mono<Long> sAdd(String key, String value){return redisTemplate.opsForSet().add(key, value);}
 
-    public Mono<Long> sCard(String key){return redisTemplate.opsForSet().size(key);}
-
-    public Mono<Boolean> sIsMember(String key, String value){return redisTemplate.opsForSet().isMember(key, value);}
-
+    public void removeMember(Long key, String member) {redisTemplate.opsForSet().remove(getIssuedCouponUsers(key), member);}
     // 캐시 조회
     public Mono<String> get(String key) {
         return redisTemplate.opsForValue().get(key);

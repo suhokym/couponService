@@ -11,7 +11,7 @@ from collections import Counter
 API_HOST = "http://host.docker.internal:8081"
 
 # 테스트할 캠페인 ID (data.sql 기준)
-FIRST_COME_COUPON_ID = 1   # 선착순 10,000개
+FIRST_COME_COUPON_ID = 2   # 선착순 10,000개
 
 # 응답 코드 집계용
 result_counter = Counter()
