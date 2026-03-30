@@ -3,19 +3,19 @@ package com.eCommerce.couponConsumer.service;
 import com.eCommerce.couponDomain.dto.CouponIssueEventDto;
 import com.eCommerce.couponDomain.dto.CouponIssueRetryEventDto;
 import com.eCommerce.couponDomain.entity.CouponCampaign;
+import com.eCommerce.couponDomain.entity.OutboxEvent;
 import com.eCommerce.couponDomain.entity.UserCoupon;
-import com.eCommerce.couponDomain.entity.enums.CampaignType;
-import com.eCommerce.couponDomain.entity.enums.EventProcessingStatus;
-import com.eCommerce.couponDomain.entity.enums.IssueRequestStatus;
-import com.eCommerce.couponDomain.entity.enums.UserCouponStatus;
+import com.eCommerce.couponDomain.entity.enums.*;
 import com.eCommerce.couponDomain.service.CouponIssueOutboxService;
 import com.eCommerce.couponDomain.service.CouponIssueService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -27,6 +27,7 @@ public class KafkaConsumerService {
     private final CouponIssueService couponIssueService;
     private final CouponIssueOutboxService couponIssueOutboxService;
     private final KafkaProducingService kafkaProducingService;
+    private final ObjectMapper objectMapper;
 
 
     // ── 메인 리스너: STEP 1 → 2 → 3 → 4 순서로 전체 실행 ────────────────────
@@ -195,7 +196,14 @@ public class KafkaConsumerService {
                     .couponCode(UUID.randomUUID().toString()) // 고유 쿠폰 코드 생성
                     .status(UserCouponStatus.ISSUED)
                     .expiredAt(campaign.getEndAt())
-                    .build());
+                    .build(),
+                    OutboxEvent.builder()
+                            .aggregateType("CouponIssueRequest")
+                            .aggregateId(event.couponIssueRequestId())
+                            .eventType("SAVE_USER_COUPON")
+                            .payload(objectMapper.writeValueAsString(event))
+                            .publishStatus(OutboxPublishStatus.PENDING)
+                            .build());
             log.info("[STEP 2] 유저 쿠폰 저장 완료 - userId: {}, couponId: {}", event.userId(), event.couponId());
             return true;
         } catch (Exception e) {
@@ -245,4 +253,6 @@ public class KafkaConsumerService {
             log.info("발급 성공: couponId: %d, userId: %s couponRequestId:%d "
                     .formatted(completedEvent.couponId(), completedEvent.userId(), completedEvent.couponIssueRequestId()));
     }
+
+
 }

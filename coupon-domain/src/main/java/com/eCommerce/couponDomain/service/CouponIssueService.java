@@ -28,6 +28,7 @@ public class CouponIssueService {
     private final CouponEventLogRepository couponEventLogRepository;
     private final UserCouponRepository userCouponRepository;
     private final ObjectMapper objectMapper;
+    private final OutboxEventRepository outboxEventRepository;
 
 
     //쿠폰 발급
@@ -56,7 +57,7 @@ public class CouponIssueService {
     }
 
     @Transactional
-    public void saveUserCoupon(UserCoupon event) {
+    public void saveUserCoupon(UserCoupon event, OutboxEvent outboxEvent) {
         // ⚠️ NOTE: couponCode는 UNIQUE 제약 포함 — blank 검증도 추가
         if (event == null
                 || event.getUserId() == null
@@ -71,6 +72,10 @@ public class CouponIssueService {
             userCouponRepository.save(event);
         } catch (Exception e) {
             throw new CouponIssueException(ErrorCode.FAIL_COUPON_ISSUE_REQUEST, "쿠폰 발급에 실패했습니다");
+        }try{
+            outboxEventRepository.save(outboxEvent);
+        }catch (Exception e){
+            throw new CouponIssueException(ErrorCode.FAIL_OUTBOX_SAVE, "이미 저장된 아웃박스입니다.");
         }
     }
 
@@ -220,13 +225,17 @@ public class CouponIssueService {
 
     @Transactional(readOnly = true)
     public void checkAlreadyEvent(Long issueRequestId) {
+        // ⚠️ NOTE: 이벤트 로그가 없으면 유효하지 않은 요청 → NOT_FOUND
+        //          이벤트 로그가 있고 SUCCESS이면 이미 처리된 중복 요청 → DUPLICATED
         Optional<CouponEventLog> EventByRequestId = couponEventLogRepository.findByRequest_RequestId(issueRequestId);
         if(EventByRequestId.isEmpty()){
-            throw new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE_EVENT, "이미 쿠폰 이벤트 발급이 되었습니다 issueRequestId=%d"
+            throw new CouponIssueException(ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND, "존재하지 않는 쿠폰 이벤트 요청입니다 issueRequestId=%d"
                     .formatted(issueRequestId));
         }
-
-
+        if(EventByRequestId.get().getProcessingStatus() == EventProcessingStatus.SUCCESS){
+            throw new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE_EVENT, "이미 처리된 쿠폰 이벤트입니다 issueRequestId=%d"
+                    .formatted(issueRequestId));
+        }
     }
 
 

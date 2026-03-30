@@ -43,4 +43,14 @@ public class OutboxEvent extends BaseTimeEntity {
 
     @Column(nullable = false)
     private int retryCount = 0; // Kafka 발행 재시도 횟수
+
+    public void markPublished() {
+        this.publishStatus = OutboxPublishStatus.PUBLISHED;
+    }
+
+    public void markFailed() {
+        this.publishStatus = OutboxPublishStatus.FAILED;
+        this.retryCount++;
+    }
+
 }

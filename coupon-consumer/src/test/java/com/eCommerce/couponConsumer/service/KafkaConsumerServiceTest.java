@@ -21,6 +21,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.core.KafkaTemplate;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 
@@ -50,6 +51,10 @@ class KafkaConsumerServiceTest {
     //          없으면 예외 catch 후 sendRetryStepX 호출 시 NullPointerException 발생.
     @Mock
     private KafkaProducingService kafkaProducingService;
+
+    // ⚠️ NOTE: step2에서 OutboxEvent payload 직렬화에 사용되므로 mock 필요
+    @Mock
+    private ObjectMapper objectMapper;
 
     private static final long COUPON_ID = 100L;
     private static final String USER_ID = "user1";
@@ -99,7 +104,7 @@ class KafkaConsumerServiceTest {
 
             kafkaConsumerService.consumeFristIssueRequest(event);
 
-            verify(couponIssueService).saveUserCoupon(any());
+            verify(couponIssueService).saveUserCoupon(any(), any());
             verify(couponIssueService).updateCouponEventLog(REQUEST_ID, EventProcessingStatus.SUCCESS);
             verify(couponIssueService).updateIssueRequestStatus(REQUEST_ID, IssueRequestStatus.ISSUED);
             // FIRST_COME은 수량 증가 필수
@@ -127,7 +132,7 @@ class KafkaConsumerServiceTest {
             kafkaConsumerService.consumeFristIssueRequest(event);
 
             verify(kafkaProducingService).sendRetryStep1(eq(event), any());
-            verify(couponIssueService, never()).saveUserCoupon(any());
+            verify(couponIssueService, never()).saveUserCoupon(any(), any());
             verify(couponIssueService, never()).updateCouponEventLog(any(), any());
             verify(couponIssueService, never()).updateIssuedQuantity(anyLong());
         }
@@ -142,7 +147,7 @@ class KafkaConsumerServiceTest {
             kafkaConsumerService.consumeFristIssueRequest(event);
 
             verify(kafkaProducingService).sendRetryStep1(eq(event), any());
-            verify(couponIssueService, never()).saveUserCoupon(any());
+            verify(couponIssueService, never()).saveUserCoupon(any(), any());
         }
 
         @Test
@@ -155,7 +160,7 @@ class KafkaConsumerServiceTest {
             kafkaConsumerService.consumeFristIssueRequest(event);
 
             verify(kafkaProducingService).sendRetryStep1(eq(event), any());
-            verify(couponIssueService, never()).saveUserCoupon(any());
+            verify(couponIssueService, never()).saveUserCoupon(any(), any());
         }
 
         @Test
@@ -163,7 +168,7 @@ class KafkaConsumerServiceTest {
         void step2_saveUserCouponFails_sendsRetryAndStops() {
             given(couponIssueService.findCoupon(COUPON_ID)).willReturn(firstComeCampaign);
             willThrow(new RuntimeException("DB 저장 실패"))
-                    .given(couponIssueService).saveUserCoupon(any());
+                    .given(couponIssueService).saveUserCoupon(any(), any());
 
             kafkaConsumerService.consumeFristIssueRequest(event);
 
@@ -227,7 +232,7 @@ class KafkaConsumerServiceTest {
 
             kafkaConsumerService.consumeOpenIssueRequest(event);
 
-            verify(couponIssueService).saveUserCoupon(any());
+            verify(couponIssueService).saveUserCoupon(any(), any());
             verify(couponIssueService).updateCouponEventLog(REQUEST_ID, EventProcessingStatus.SUCCESS);
             verify(couponIssueService).updateIssueRequestStatus(REQUEST_ID, IssueRequestStatus.ISSUED);
             verify(couponIssueService, never()).updateIssuedQuantity(anyLong());
@@ -238,7 +243,7 @@ class KafkaConsumerServiceTest {
         void step2_fails_sendsRetry_noQuantityUpdate() {
             given(couponIssueService.findCoupon(COUPON_ID)).willReturn(openCampaign);
             willThrow(new RuntimeException("DB 실패"))
-                    .given(couponIssueService).saveUserCoupon(any());
+                    .given(couponIssueService).saveUserCoupon(any(), any());
 
             kafkaConsumerService.consumeOpenIssueRequest(event);
 
@@ -264,7 +269,7 @@ class KafkaConsumerServiceTest {
 
             kafkaConsumerService.retryStep1(retryEvent);
 
-            verify(couponIssueService).saveUserCoupon(any());
+            verify(couponIssueService).saveUserCoupon(any(), any());
             verify(couponIssueService).updateIssuedQuantity(COUPON_ID);
             verify(kafkaProducingService).cosumeIssueComplete(any());
         }
@@ -278,7 +283,7 @@ class KafkaConsumerServiceTest {
 
             verify(kafkaProducingService).sendAllFail(any(), any());
             verify(couponIssueService, never()).findCoupon(anyLong());
-            verify(couponIssueService, never()).saveUserCoupon(any());
+            verify(couponIssueService, never()).saveUserCoupon(any(), any());
         }
 
         @Test
@@ -290,7 +295,7 @@ class KafkaConsumerServiceTest {
 
             kafkaConsumerService.retryStep2(retryEvent);
 
-            verify(couponIssueService).saveUserCoupon(any());
+            verify(couponIssueService).saveUserCoupon(any(), any());
             verify(couponIssueService).updateIssuedQuantity(COUPON_ID);
             verify(kafkaProducingService).cosumeIssueComplete(any());
         }
@@ -303,7 +308,7 @@ class KafkaConsumerServiceTest {
             kafkaConsumerService.retryStep2(retryEvent);
 
             verify(kafkaProducingService).sendAllFail(any(), any());
-            verify(couponIssueService, never()).saveUserCoupon(any());
+            verify(couponIssueService, never()).saveUserCoupon(any(), any());
         }
 
         @Test

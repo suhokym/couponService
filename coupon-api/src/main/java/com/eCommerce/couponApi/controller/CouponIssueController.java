@@ -3,7 +3,6 @@ package com.eCommerce.couponApi.controller;
 import com.eCommerce.couponApi.dto.CouponIssueKafkaDto;
 import com.eCommerce.couponApi.dto.CouponIssueRequestDto;
 import com.eCommerce.couponApi.dto.CouponIssueResponseDto;
-import com.eCommerce.couponApi.dto.CouponIssueResultDto;
 import com.eCommerce.couponApi.repository.redisDto.CouponIssueRequestCode;
 import com.eCommerce.couponApi.service.CouponEventProducer;
 import com.eCommerce.couponApi.service.CouponRedisService;
