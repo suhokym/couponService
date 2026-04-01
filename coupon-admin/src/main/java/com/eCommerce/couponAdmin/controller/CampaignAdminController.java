@@ -7,10 +7,9 @@ import com.eCommerce.couponDomain.dto.CouponCampaignDto;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @Tag(name = "캠페인 관리", description = "쿠폰 캠페인 생성 및 상태 관리 API")
 @RestController
@@ -21,13 +20,15 @@ public class CampaignAdminController {
     private final CampaignAdminService campaignAdminService;
 
     /**
-     * 전체 캠페인 목록 조회
-     * GET /admin/campaigns
+     * 전체 캠페인 목록 조회 (서버사이드 페이지네이션)
+     * GET /admin/campaigns?page=0&size=20
      */
-    @Operation(summary = "캠페인 목록 조회")
+    @Operation(summary = "캠페인 목록 조회", description = "page(0-based), size(기본 20) 파라미터로 페이지네이션 지원")
     @GetMapping
-    public ResponseEntity<List<CouponCampaignDto>> findAll() {
-        return ResponseEntity.ok(campaignAdminService.findAll());
+    public ResponseEntity<Page<CouponCampaignDto>> findAll(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(campaignAdminService.findAll(page, size));
     }
 
     /**

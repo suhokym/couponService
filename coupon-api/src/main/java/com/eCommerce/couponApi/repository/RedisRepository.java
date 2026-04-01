@@ -1,6 +1,7 @@
 package com.eCommerce.couponApi.repository;
 
 import com.eCommerce.couponApi.repository.redisDto.CouponIssueRequestCode;
+import com.eCommerce.couponDomain.exception.CouponIssueException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 
@@ -20,7 +21,8 @@ public class RedisRepository {
 
     private final ReactiveRedisTemplate<String, String> redisTemplate;
 
-     private RedisScript<String> issueScript = checkIssueScript();
+     private RedisScript<String> FirstissueScript = checkFirstIssueScript();
+     private RedisScript<String> OpenIssueScript = checkOpenIssueScript();
 
 
     public void removeMember(Long key, String member) {redisTemplate.opsForSet().remove(getIssuedCouponUsers(key), member);}
@@ -44,11 +46,24 @@ public class RedisRepository {
         return redisTemplate.delete(lockKey);
     }
 
-    public Mono<CouponIssueRequestCode> issueRequest(long couponId, String userId, int totalIssueQuantity){
+    public Mono<CouponIssueRequestCode> issueRequest(long couponId, String userId, Integer totalIssueQuantity){
         String IssueCouponKey = getIssuedCouponUsers(couponId);
 
+        if (totalIssueQuantity == null){
             return redisTemplate.execute(
-                    issueScript,
+                            OpenIssueScript,
+                            List.of(IssueCouponKey),
+                            String.valueOf(userId)
+
+                    )
+                    .next()
+                    .map(CouponIssueRequestCode::findCode)
+                    .doOnNext(CouponIssueRequestCode::checkRequestResult)
+                    .onErrorMap(e -> e instanceof CouponIssueException ? e : new RuntimeException("OPEN COUPON Redis 실행 오류: " + e.getMessage()));
+        }
+
+            return redisTemplate.execute(
+                            FirstissueScript,
                     List.of(IssueCouponKey),
                     String.valueOf(userId),
                     String.valueOf(totalIssueQuantity)
@@ -57,11 +72,13 @@ public class RedisRepository {
                     .next()
                     .map(CouponIssueRequestCode::findCode)
                     .doOnNext(CouponIssueRequestCode::checkRequestResult)
-                    .onErrorMap(e ->new RuntimeException("Redis 실행 오류: " + e.getMessage()));
+                    .onErrorMap(e -> e instanceof CouponIssueException ? e : new RuntimeException("FIRST COUPON Redis 실행 오류: " + e.getMessage()));
 
     }
 
-    private RedisScript<String> checkIssueScript(){
+
+
+    private RedisScript<String> checkFirstIssueScript(){
         // 중복 체크, 최대 발급수 체크
         String script = """
                 if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1 then return '2'
@@ -72,6 +89,18 @@ public class RedisRepository {
                 
                 return '3'                
                 
+                """;
+        return RedisScript.of(script, String.class);
+    }
+
+    private RedisScript<String> checkOpenIssueScript(){
+        // 중복 체크
+        String script = """
+                if redis.call('SISMEMBER', KEYS[1], ARGV[1]) == 1 then return '2'
+                end
+                
+                redis.call('SADD', KEYS[1], ARGV[1]) return '4'               
+   
                 """;
         return RedisScript.of(script, String.class);
     }

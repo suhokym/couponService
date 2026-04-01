@@ -31,6 +31,9 @@ public enum CouponIssueRequestCode {
         if (codeVal == 3) {
             return CouponIssueRequestCode.INVALID_COUPON_ISSUE_QUANTITY;
         }
+        if (codeVal == 4) {
+            return CouponIssueRequestCode.SUCCESS_OPEN;
+        }
         throw new IllegalArgumentException("존재하지 않는 코드입니다. %s".formatted(codeVal));
 
     }

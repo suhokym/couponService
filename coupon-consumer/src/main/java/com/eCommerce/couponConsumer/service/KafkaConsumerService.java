@@ -167,14 +167,19 @@ public class KafkaConsumerService {
     // Private 단계별 실행 메서드
     // ════════════════════════════════════════════════════════════════════════
 
-    // ── STEP 1: 사전 검증 (상태 PROCESSING 변경 + 캠페인 조회 + 중복 확인) ──
+    // ── STEP 1: 사전 검증 (중복 확인 + 상태 PROCESSING 변경 + 캠페인 조회) ──
     private CouponCampaign step1Validation(CouponIssueEventDto event) {
         log.info("[STEP 1] 사전 검증 시작 - couponIssueRequestId: {}", event.couponIssueRequestId());
         try {
-            couponIssueService.updateIssueRequestStatus(event.couponIssueRequestId(), IssueRequestStatus.PROCESSING);
-            CouponCampaign campaign = couponIssueService.findCoupon(event.couponId());
+            // ⚠️ NOTE: 중복 처리 여부를 먼저 확인 후 PROCESSING 세팅
+            //          순서가 바뀌면 이미 ISSUED된 레코드를 PROCESSING으로 오염시킨 뒤
+            //          중복을 감지해 null 반환 → status stuck 버그 발생
             couponIssueService.checkAlreadyEvent(event.couponIssueRequestId());
             couponIssueService.checkAlreadyIssuedUserCoupon(event.couponId(), event.userId(), event.couponIssueRequestId());
+            log.info("PROCESSING넘어감");
+            couponIssueService.updateIssueRequestStatus(event.couponIssueRequestId(), IssueRequestStatus.PROCESSING);
+            CouponCampaign campaign = couponIssueService.findCoupon(event.couponId());
+
             log.info("[STEP 1] 사전 검증 완료 - campaignName: {}", campaign.getName());
             return campaign;
         } catch (CouponIssueException e) {

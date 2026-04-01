@@ -129,6 +129,13 @@
 
     /* Empty */
     .empty { text-align: center; padding: 48px; color: #aaa; font-size: 14px; }
+
+    /* Pagination */
+    .pagination { display:flex; gap:6px; justify-content:center; padding:16px; }
+    .pagination button { padding:6px 12px; border:1px solid #dde1ef; border-radius:6px;
+      background:#fff; cursor:pointer; font-size:13px; }
+    .pagination button.active { background:#6c8ef7; color:#fff; border-color:#6c8ef7; }
+    .pagination button:disabled { opacity:0.4; cursor:default; }
   </style>
 </head>
 <body>
@@ -227,6 +234,7 @@
             <tr><td colspan="9" class="empty">API 연결 후 데이터가 표시됩니다</td></tr>
           </tbody>
         </table>
+        <div id="campaigns-pagination" class="pagination"></div>
       </div>
     </div>
 
@@ -254,6 +262,7 @@
             <tr><td colspan="7" class="empty">API 연결 후 데이터가 표시됩니다</td></tr>
           </tbody>
         </table>
+        <div id="requests-pagination" class="pagination"></div>
       </div>
     </div>
 
@@ -279,6 +288,7 @@
             <tr><td colspan="7" class="empty">API 연결 후 데이터가 표시됩니다</td></tr>
           </tbody>
         </table>
+        <div id="usercoupons-pagination" class="pagination"></div>
       </div>
     </div>
 
@@ -323,6 +333,12 @@
 
 <script>
   const BASE_URL = 'http://localhost:8083';
+  const PAGE_SIZE = 20;
+
+  // 섹션별 현재 페이지 상태 (0-based)
+  let campaignsPage = 0;
+  let requestsPage  = 0;
+  let couponsPage   = 0;
 
   function showSection(name, el) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -331,9 +347,9 @@
     el.classList.add('active');
     const titles = { dashboard: '대시보드', campaigns: '캠페인 관리', 'issue-requests': '발급 요청', 'user-coupons': '유저 쿠폰' };
     document.getElementById('page-title').textContent = titles[name];
-    if (name === 'campaigns') loadCampaigns();
-    if (name === 'issue-requests') loadRequests();
-    if (name === 'user-coupons') loadUserCoupons();
+    if (name === 'campaigns') loadCampaigns(campaignsPage);
+    if (name === 'issue-requests') loadRequests(requestsPage);
+    if (name === 'user-coupons') loadUserCoupons(couponsPage);
     if (name === 'dashboard') loadDashboard();
   }
 
@@ -347,27 +363,76 @@
     return `<span class="badge-status badge-${value}">${value}</span>`;
   }
 
+  // 공통 페이지네이션 렌더 함수
+  // currentPage ±2 범위의 페이지 버튼 표시
+  function renderPagination(section, pageData, currentPage, loadFn) {
+    const el = document.getElementById(`${section}-pagination`);
+    const { totalPages, number } = pageData;
+    if (totalPages <= 1) { el.innerHTML = ''; return; }
+
+    const buttons = [];
+
+    // 이전 버튼
+    buttons.push(`<button onclick="${loadFn.name}(${number - 1})" ${number === 0 ? 'disabled' : ''}>&#8249; 이전</button>`);
+
+    // 페이지 번호 버튼 (현재 ±2)
+    const start = Math.max(0, number - 2);
+    const end   = Math.min(totalPages - 1, number + 2);
+
+    if (start > 0) {
+      buttons.push(`<button onclick="${loadFn.name}(0)">1</button>`);
+      if (start > 1) buttons.push(`<button disabled>…</button>`);
+    }
+    for (let i = start; i <= end; i++) {
+      buttons.push(`<button class="${i === number ? 'active' : ''}" onclick="${loadFn.name}(${i})">${i + 1}</button>`);
+    }
+    if (end < totalPages - 1) {
+      if (end < totalPages - 2) buttons.push(`<button disabled>…</button>`);
+      buttons.push(`<button onclick="${loadFn.name}(${totalPages - 1})">${totalPages}</button>`);
+    }
+
+    // 다음 버튼
+    buttons.push(`<button onclick="${loadFn.name}(${number + 1})" ${number >= totalPages - 1 ? 'disabled' : ''}>다음 &#8250;</button>`);
+
+    el.innerHTML = buttons.join('');
+  }
+
   // Dashboard
+  // page=0&size=1 로 호출해 totalElements만 취득 (전체 건수 표시)
   async function loadDashboard() {
     try {
-      const campaigns = await apiFetch('/admin/campaigns');
-      const requests  = await apiFetch('/admin/issue-requests');
-      const coupons   = await apiFetch('/admin/user-coupons');
-      document.getElementById('stat-campaigns').textContent = campaigns.length;
-      document.getElementById('stat-requests').textContent  = requests.length;
-      document.getElementById('stat-issued').textContent    = coupons.length;
-      document.getElementById('stat-failed').textContent    = requests.filter(r => r.status.startsWith('FAILED')).length;
+      const campaigns = await apiFetch('/admin/campaigns?page=0&size=1');
+      const requests  = await apiFetch('/admin/issue-requests?page=0&size=1');
+      const coupons   = await apiFetch('/admin/user-coupons?page=0&size=1');
+      // 실패 건수: FAILED_FATAL + FAILED_RETRYABLE + FAILED_BUSINESS totalElements 합산
+      const failedFatal      = await apiFetch('/admin/issue-requests?status=FAILED_FATAL&page=0&size=1');
+      const failedRetryable  = await apiFetch('/admin/issue-requests?status=FAILED_RETRYABLE&page=0&size=1');
+      const failedBusiness   = await apiFetch('/admin/issue-requests?status=FAILED_BUSINESS&page=0&size=1');
+
+      document.getElementById('stat-campaigns').textContent = campaigns.totalElements;
+      document.getElementById('stat-requests').textContent  = requests.totalElements;
+      document.getElementById('stat-issued').textContent    = coupons.totalElements;
+      document.getElementById('stat-failed').textContent    =
+        failedFatal.totalElements + failedRetryable.totalElements + failedBusiness.totalElements;
     } catch(e) { /* API 미연결 시 무시 */ }
   }
 
   // Campaigns
-  let allCampaigns = [];
-  async function loadCampaigns() {
+  async function loadCampaigns(page = 0) {
+    campaignsPage = page;
+    const status = document.getElementById('campaign-status-filter').value;
+    const type   = document.getElementById('campaign-type-filter').value;
     try {
-      allCampaigns = await apiFetch('/admin/campaigns');
-      renderCampaigns(allCampaigns);
+      const data = await apiFetch(`/admin/campaigns?page=${page}&size=${PAGE_SIZE}`);
+      // status / type 필터는 현재 페이지 컨텐츠에 클라이언트사이드 적용
+      const filtered = data.content.filter(c =>
+        (!status || c.status === status) && (!type || c.type === type)
+      );
+      renderCampaigns(filtered);
+      renderPagination('campaigns', data, page, loadCampaigns);
     } catch(e) {
       document.getElementById('campaigns-tbody').innerHTML = `<tr><td colspan="9" class="empty">API 연결 후 데이터가 표시됩니다 (GET /admin/campaigns)</td></tr>`;
+      document.getElementById('campaigns-pagination').innerHTML = '';
     }
   }
   function renderCampaigns(data) {
@@ -393,12 +458,10 @@
         </td>
       </tr>`).join('');
   }
+  // 필터 변경 시 1페이지(0)로 리셋
   function filterCampaigns() {
-    const status = document.getElementById('campaign-status-filter').value;
-    const type   = document.getElementById('campaign-type-filter').value;
-    renderCampaigns(allCampaigns.filter(c =>
-      (!status || c.status === status) && (!type || c.type === type)
-    ));
+    campaignsPage = 0;
+    loadCampaigns(0);
   }
   async function changeStatus(id, status) {
     if (!status) return;
@@ -407,18 +470,26 @@
         method: 'PATCH', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ status })
       });
-      loadCampaigns();
+      loadCampaigns(campaignsPage);
     } catch(e) { alert('상태 변경 실패'); }
   }
 
   // Issue Requests
-  let allRequests = [];
-  async function loadRequests() {
+  async function loadRequests(page = 0) {
+    requestsPage = page;
+    const status = document.getElementById('req-status-filter').value;
+    const userId = document.getElementById('req-user-filter').value.trim();
+    let url = `/admin/issue-requests?page=${page}&size=${PAGE_SIZE}`;
+    if (status) url += `&status=${status}`;
     try {
-      allRequests = await apiFetch('/admin/issue-requests');
-      renderRequests(allRequests);
+      const data = await apiFetch(url);
+      // userId 필터는 현재 페이지 컨텐츠에 클라이언트사이드 적용
+      const filtered = data.content.filter(r => !userId || r.userId.includes(userId));
+      renderRequests(filtered);
+      renderPagination('requests', data, page, loadRequests);
     } catch(e) {
       document.getElementById('requests-tbody').innerHTML = `<tr><td colspan="7" class="empty">API 연결 후 데이터가 표시됩니다 (GET /admin/issue-requests)</td></tr>`;
+      document.getElementById('requests-pagination').innerHTML = '';
     }
   }
   function renderRequests(data) {
@@ -435,22 +506,28 @@
         <td>${r.createdAt?.substring(0,16) ?? '-'}</td>
       </tr>`).join('');
   }
+  // 필터 변경 시 1페이지(0)로 리셋
   function filterRequests() {
-    const status = document.getElementById('req-status-filter').value;
-    const userId = document.getElementById('req-user-filter').value.trim();
-    renderRequests(allRequests.filter(r =>
-      (!status || r.status === status) && (!userId || r.userId.includes(userId))
-    ));
+    requestsPage = 0;
+    loadRequests(0);
   }
 
   // User Coupons
-  let allUserCoupons = [];
-  async function loadUserCoupons() {
+  async function loadUserCoupons(page = 0) {
+    couponsPage = page;
+    const userId = document.getElementById('coupon-user-filter').value.trim();
+    const status = document.getElementById('coupon-status-filter').value;
+    let url = `/admin/user-coupons?page=${page}&size=${PAGE_SIZE}`;
+    if (userId) url += `&userId=${encodeURIComponent(userId)}`;
     try {
-      allUserCoupons = await apiFetch('/admin/user-coupons');
-      renderUserCoupons(allUserCoupons);
+      const data = await apiFetch(url);
+      // status 필터는 현재 페이지 컨텐츠에 클라이언트사이드 적용
+      const filtered = data.content.filter(c => !status || c.status === status);
+      renderUserCoupons(filtered);
+      renderPagination('usercoupons', data, page, loadUserCoupons);
     } catch(e) {
       document.getElementById('usercoupons-tbody').innerHTML = `<tr><td colspan="7" class="empty">API 연결 후 데이터가 표시됩니다 (GET /admin/user-coupons)</td></tr>`;
+      document.getElementById('usercoupons-pagination').innerHTML = '';
     }
   }
   function renderUserCoupons(data) {
@@ -467,12 +544,10 @@
         <td>${c.usedAt?.substring(0,16) ?? '-'}</td>
       </tr>`).join('');
   }
+  // 필터 변경 시 1페이지(0)로 리셋
   function filterUserCoupons() {
-    const userId = document.getElementById('coupon-user-filter').value.trim();
-    const status = document.getElementById('coupon-status-filter').value;
-    renderUserCoupons(allUserCoupons.filter(c =>
-      (!userId || c.userId.includes(userId)) && (!status || c.status === status)
-    ));
+    couponsPage = 0;
+    loadUserCoupons(0);
   }
 
   // Modal
@@ -493,7 +568,7 @@
       });
       if (!res.ok) throw new Error();
       closeModal();
-      loadCampaigns();
+      loadCampaigns(campaignsPage);
     } catch(e) { alert('생성 실패 - API를 확인하세요'); }
   }
 

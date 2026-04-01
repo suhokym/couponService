@@ -9,10 +9,11 @@ import com.eCommerce.couponDomain.exception.CouponIssueException;
 import com.eCommerce.couponDomain.exception.ErrorCode;
 import com.eCommerce.couponDomain.repository.CouponCampaignJpaRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -21,14 +22,15 @@ public class CampaignAdminService {
     private final CouponCampaignJpaRepository campaignRepository;
 
     /**
-     * 전체 캠페인 목록 조회
+     * 전체 캠페인 목록 조회 (서버사이드 페이지네이션)
+     * - page: 0-based 페이지 번호
+     * - size: 페이지당 건수 (기본 20)
      */
     @Transactional(readOnly = true)
-    public List<CouponCampaignDto> findAll() {
-        return campaignRepository.findAll()
-                .stream()
-                .map(CouponCampaignDto::from)
-                .toList();
+    public Page<CouponCampaignDto> findAll(int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        return campaignRepository.findAll(pageable)
+                .map(CouponCampaignDto::from);
     }
 
     /**

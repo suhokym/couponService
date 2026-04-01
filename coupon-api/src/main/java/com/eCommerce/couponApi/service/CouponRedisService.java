@@ -49,14 +49,24 @@ public class CouponRedisService {
                });
     }
 
-    ///  오픈일때 문제점: 지금 조금이라도 올라가면 커넥션 오류뜸 redis에 저장하는 다른 로직을 만들고 카프카로 보내기
+    //지금 중복체크가 되자않고있음
     public Mono<CouponIssueResultDto> issueOpenCoupon(long couponId, String userId){
         String OPEN_COUPON_TOPIC = "open-coupon-issue-requested";
-        return Mono.fromCallable(() -> {
-            Long requestId = couponIssueService.saveIssueRequestAndEventLog(couponId, userId, OPEN_COUPON_TOPIC);
-            return new CouponIssueResultDto(CouponIssueRequestCode.SUCCESS_OPEN, requestId);
-        }).subscribeOn(Schedulers.boundedElastic())
-                .checkpoint("OPEN 쿠폰 발급  요청 저장 완료");
+
+        return redisRepository.issueRequest(couponId, userId, null)
+                .doOnNext(CouponIssueRequestCode::checkRequestResult)
+                .checkpoint("Redis 중복 발급 처리 완료")
+                .flatMap(code -> {
+                    if (code == CouponIssueRequestCode.SUCCESS_OPEN){
+                        return Mono.fromCallable(() -> {
+                                    Long requestId = couponIssueService.saveIssueRequestAndEventLog(couponId, userId, OPEN_COUPON_TOPIC);
+                                    return new CouponIssueResultDto(CouponIssueRequestCode.SUCCESS_OPEN, requestId);
+                                }).subscribeOn(Schedulers.boundedElastic())
+                                .checkpoint("OPEN 쿠폰 발급  요청 저장 완료");
+                    }
+                    return Mono.just(new CouponIssueResultDto(code, null));
+                });
+
     }
 
 

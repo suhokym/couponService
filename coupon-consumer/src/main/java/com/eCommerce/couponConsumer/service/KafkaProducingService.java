@@ -2,6 +2,7 @@ package com.eCommerce.couponConsumer.service;
 
 import com.eCommerce.couponDomain.dto.CouponIssueEventDto;
 import com.eCommerce.couponDomain.dto.CouponIssueRetryEventDto;
+import com.eCommerce.couponDomain.entity.enums.CampaignType;
 import com.eCommerce.couponDomain.service.CouponIssueService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -51,6 +52,15 @@ public class KafkaProducingService {
                 event.couponId(), event.userId(), event.couponIssueRequestId(), failReason);
         retryKafkaTemplate.send("coupon-issue-retry-step4", String.valueOf(event.userId()), retryEvent);
     }
+    // ⚠️ NOTE: 기존 kafkaTemplate<String, CouponIssueEventDto> 재사용
+    //          campaign type에 따라 원래 토픽으로 재발행 (stuck 레코드 복구용)
+    public void republishToOriginalTopic(CouponIssueEventDto event, CampaignType type) {
+        String topic = (type == CampaignType.OPEN)
+                ? "open-coupon-issue-requested"
+                : "first-coupon-issue-requested";
+        kafkaTemplate.send(topic, String.valueOf(event.userId()), event);
+    }
+
     // ⚠️ NOTE: retryCount >= 3 초과로 더 이상 재시도 불가 시 발행.
     //          DB allFailed() 처리는 UpdateRetry() 내부에서 이미 완료된 상태.
     public void sendAllFail(CouponIssueEventDto event, String failReason) {
