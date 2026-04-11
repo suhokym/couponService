@@ -11,7 +11,7 @@ from collections import Counter
 API_HOST = "http://host.docker.internal:8081"
 
 # 테스트할 캠페인 ID (data.sql 기준)
-FIRST_COME_COUPON_ID = 2   # 선착순 10,000개
+FIRST_COME_COUPON_ID = 1   # 선착순 10,000개
 
 # 응답 코드 집계용
 result_counter = Counter()
@@ -70,46 +70,6 @@ class FirstComeCouponUser(HttpUser):
                     response.failure(f"Unexpected status: {response.status_code} - {response.text[:100]}")
         except (ConnectionError, Timeout) as e:
             result_counter["connection_error"] += 1
-
-
-
-# ───────────────────────────────────────────────
-# 시나리오 2: 동일 유저 중복 발급 시도
-# ───────────────────────────────────────────────
-class DuplicateIssueUser(HttpUser):
-    """
-    동일 유저가 같은 쿠폰을 반복 요청하는 시나리오
-    - Redis 중복 차단 로직 검증
-    """
-    host = API_HOST
-    wait_time = between(0.05, 0.2)
-
-    def on_start(self):
-        # 소수의 고정 유저 ID 사용 → 중복 발급 시도 유발
-        self.user_id = f"dup_user_{random.randint(1, 10)}"
-
-    @task
-    def duplicate_issue(self):
-        payload = {
-            "couponId": FIRST_COME_COUPON_ID,
-            "userId": self.user_id
-        }
-        try:
-            with self.client.post(
-                "/api/issue",
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                name="/api/issue [중복시도]",
-                catch_response=True,
-                timeout=5
-            ) as response:
-                # 중복이든 성공이든 서버 레벨 오류(5xx)가 없으면 OK
-                if 0 < response.status_code < 500:
-                    response.success()
-                else:
-                    response.failure(f"Server error: {response.status_code}")
-        except (ConnectionError, Timeout):
-            pass  # 중복 시도 시나리오에선 연결 오류 무시
 
 
 # ───────────────────────────────────────────────

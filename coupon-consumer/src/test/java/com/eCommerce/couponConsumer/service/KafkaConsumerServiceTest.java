@@ -138,28 +138,30 @@ class KafkaConsumerServiceTest {
         }
 
         @Test
-        @DisplayName("step1: checkAlreadyEvent 실패 → sendRetryStep1 발행, step2 실행 안 됨")
-        void step1_checkAlreadyEventFails_sendsRetry() {
-            given(couponIssueService.findCoupon(COUPON_ID)).willReturn(firstComeCampaign);
+        @DisplayName("step1: checkAlreadyEvent DUPLICATED_COUPON_ISSUE_EVENT → 멱등성 보장, retry 없이 종료")
+        void step1_checkAlreadyEventFails_skipsRetry() {
+            // ⚠️ NOTE: DUPLICATED_COUPON_ISSUE_EVENT는 이미 처리 완료된 요청 → 무한 retry 방지를 위해
+            //          sendRetryStep1 미발행, step2 이후 실행 안 됨
             willThrow(new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE_EVENT, "중복 이벤트"))
                     .given(couponIssueService).checkAlreadyEvent(REQUEST_ID);
 
             kafkaConsumerService.consumeFristIssueRequest(event);
 
-            verify(kafkaProducingService).sendRetryStep1(eq(event), any());
+            verify(kafkaProducingService, never()).sendRetryStep1(any(), any());
             verify(couponIssueService, never()).saveUserCoupon(any(), any());
         }
 
         @Test
-        @DisplayName("step1: checkAlreadyIssuedUserCoupon 실패 → sendRetryStep1 발행, step2 실행 안 됨")
-        void step1_duplicateUserCoupon_sendsRetry() {
-            given(couponIssueService.findCoupon(COUPON_ID)).willReturn(firstComeCampaign);
+        @DisplayName("step1: checkAlreadyIssuedUserCoupon DUPLICATED_COUPON_ISSUE → 멱등성 보장, retry 없이 종료")
+        void step1_duplicateUserCoupon_skipsRetry() {
+            // ⚠️ NOTE: DUPLICATED_COUPON_ISSUE는 이미 쿠폰이 발급된 사용자 → 무한 retry 방지를 위해
+            //          sendRetryStep1 미발행, step2 이후 실행 안 됨
             willThrow(new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE, "이미 발급"))
                     .given(couponIssueService).checkAlreadyIssuedUserCoupon(COUPON_ID, USER_ID, REQUEST_ID);
 
             kafkaConsumerService.consumeFristIssueRequest(event);
 
-            verify(kafkaProducingService).sendRetryStep1(eq(event), any());
+            verify(kafkaProducingService, never()).sendRetryStep1(any(), any());
             verify(couponIssueService, never()).saveUserCoupon(any(), any());
         }
 

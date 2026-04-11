@@ -73,7 +73,7 @@ class CouponIssueRequestTest {
         @Test
         @DisplayName("최초 재시도: retryCount 0 → 1, 상태 RETRYING")
         void firstRetry_incrementsCountAndSetsRetrying() {
-            issueRequest.updateRetryCount();
+            issueRequest.updateRetryCount("오류 발생");
 
             assertThat(issueRequest.getRetryCount()).isEqualTo(1);
             assertThat(issueRequest.getStatus()).isEqualTo(IssueRequestStatus.RETRYING);
@@ -82,9 +82,9 @@ class CouponIssueRequestTest {
         @Test
         @DisplayName("연속 3회 재시도: retryCount = 3")
         void threeRetries_countIsThree() {
-            issueRequest.updateRetryCount();
-            issueRequest.updateRetryCount();
-            issueRequest.updateRetryCount();
+            issueRequest.updateRetryCount("오류1");
+            issueRequest.updateRetryCount("오류2");
+            issueRequest.updateRetryCount("오류3");
 
             assertThat(issueRequest.getRetryCount()).isEqualTo(3);
             assertThat(issueRequest.getStatus()).isEqualTo(IssueRequestStatus.RETRYING);

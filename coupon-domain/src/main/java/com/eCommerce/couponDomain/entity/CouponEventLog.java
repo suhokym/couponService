@@ -16,6 +16,8 @@ import java.time.LocalDateTime;
  * 쿠폰 이벤트 처리 로그 엔티티
  * - Consumer가 Kafka 메시지를 처리한 결과를 기록
  * - 성공/실패/재시도 이력을 추적하여 장애 분석 및 재처리에 활용
+ * ⚠️ NOTE: OneToMany 구조 — 각 처리 시도마다 새 레코드를 INSERT하여
+ *           요청 1건에 대한 전체 처리 이력을 보존한다 (기존 레코드 UPDATE 금지)
  */
 @Entity
 @Table(name = "coupon_event_log")
@@ -30,7 +32,8 @@ public class CouponEventLog {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long eventId;
 
-    @OneToOne(fetch = FetchType.LAZY)
+    // ⚠️ NOTE: @OneToOne → @ManyToOne 변경 — 동일 request_id로 다수 로그 INSERT 가능
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "request_id", nullable = false)
     private CouponIssueRequest request; // 연관된 발급 요청
 
@@ -49,15 +52,4 @@ public class CouponEventLog {
     @CreatedDate
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt; // 로그 기록 시각
-
-    public void updateStatus(EventProcessingStatus status) {
-        this.processingStatus = status;
-    }
-
-    public void updateRetryStatus() {
-        this.processingStatus = EventProcessingStatus.RETRYING;
-    }
-    public void updatefailedStatus() {
-        this.processingStatus = EventProcessingStatus.FAILED;
-    }
 }

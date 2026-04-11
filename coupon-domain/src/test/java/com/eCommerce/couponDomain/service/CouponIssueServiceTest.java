@@ -208,7 +208,10 @@ class CouponIssueServiceTest {
         @Test
         @DisplayName("이벤트 로그 없음 → COUPON_ISSUE_REQUEST_NOT_FOUND 예외")
         void noEventLog_throwsNotFound() {
-            given(couponEventLogRepository.findByRequest_RequestId(REQUEST_ID))
+            // ⚠️ NOTE: OneToMany 전환 후 exists 쿼리 → top 조회 순서로 변경
+            given(couponEventLogRepository.existsByRequest_RequestIdAndProcessingStatus(REQUEST_ID, EventProcessingStatus.SUCCESS))
+                    .willReturn(false);
+            given(couponEventLogRepository.findTopByRequest_RequestIdOrderByCreatedAtDesc(REQUEST_ID))
                     .willReturn(Optional.empty());
 
             assertThatThrownBy(() -> couponIssueService.checkAlreadyEvent(REQUEST_ID))
@@ -228,7 +231,10 @@ class CouponIssueServiceTest {
                     .eventType("test")
                     .processingStatus(EventProcessingStatus.PROGRESS)
                     .build();
-            given(couponEventLogRepository.findByRequest_RequestId(REQUEST_ID))
+            // SUCCESS 없고 EventLog는 존재 → 정상 처리 중
+            given(couponEventLogRepository.existsByRequest_RequestIdAndProcessingStatus(REQUEST_ID, EventProcessingStatus.SUCCESS))
+                    .willReturn(false);
+            given(couponEventLogRepository.findTopByRequest_RequestIdOrderByCreatedAtDesc(REQUEST_ID))
                     .willReturn(Optional.of(log));
 
             assertThatCode(() -> couponIssueService.checkAlreadyEvent(REQUEST_ID))
@@ -238,16 +244,9 @@ class CouponIssueServiceTest {
         @Test
         @DisplayName("이벤트 로그 SUCCESS 상태 → DUPLICATED_COUPON_ISSUE_EVENT 예외")
         void successStatus_throwsDuplicated() {
-            CouponIssueRequest request = CouponIssueRequest.builder()
-                    .userId(USER_ID).campaign(activeCampaign)
-                    .status(IssueRequestStatus.ISSUED).build();
-            CouponEventLog log = CouponEventLog.builder()
-                    .request(request)
-                    .eventType("test")
-                    .processingStatus(EventProcessingStatus.SUCCESS)
-                    .build();
-            given(couponEventLogRepository.findByRequest_RequestId(REQUEST_ID))
-                    .willReturn(Optional.of(log));
+            // SUCCESS exists → 즉시 DUPLICATED 예외, findTop 호출 불필요
+            given(couponEventLogRepository.existsByRequest_RequestIdAndProcessingStatus(REQUEST_ID, EventProcessingStatus.SUCCESS))
+                    .willReturn(true);
 
             assertThatThrownBy(() -> couponIssueService.checkAlreadyEvent(REQUEST_ID))
                     .isInstanceOf(CouponIssueException.class)
@@ -337,41 +336,48 @@ class CouponIssueServiceTest {
                     .userId(USER_ID).campaign(activeCampaign)
                     .status(IssueRequestStatus.REQUESTED).build();
             eventLog = CouponEventLog.builder()
-                    .request(retryableRequest).eventType("test")
+                    .request(retryableRequest).eventType("test").payload("{}")
                     .processingStatus(EventProcessingStatus.PROGRESS).build();
         }
 
         @Test
-        @DisplayName("retryCount < 3 → true 반환, retryCount 증가")
+        @DisplayName("retryCount < 3 → true 반환, retryCount 증가, 새 RETRYING 로그 저장")
         void canRetry_returnsTrueAndIncrements() {
             given(couponIssueRequestRepository.findById(REQUEST_ID)).willReturn(Optional.of(retryableRequest));
-            given(couponEventLogRepository.findByRequest_RequestId(any())).willReturn(Optional.of(eventLog));
+            // ⚠️ NOTE: OneToMany 전환 후 findTopByRequest_RequestIdOrderByCreatedAtDesc 사용
+            given(couponEventLogRepository.findTopByRequest_RequestIdOrderByCreatedAtDesc(any()))
+                    .willReturn(Optional.of(eventLog));
 
             boolean result = couponIssueService.UpdateRetry(REQUEST_ID, "오류");
 
             assertThat(result).isTrue();
             assertThat(retryableRequest.getRetryCount()).isEqualTo(1);
+            // 새 RETRYING 레코드 INSERT 검증
+            verify(couponEventLogRepository).save(any(CouponEventLog.class));
         }
 
         @Test
-        @DisplayName("retryCount >= 3 → false 반환 (allFailed 처리)")
+        @DisplayName("retryCount >= 3 → false 반환 (allFailed 처리, 새 FAILED 로그 저장)")
         void exceededRetry_returnsFalse() {
-            // 3번 재시도
-            retryableRequest.updateRetryCount();
-            retryableRequest.updateRetryCount();
-            retryableRequest.updateRetryCount();
+            // 3번 재시도 상태로 세팅
+            retryableRequest.updateRetryCount("이유1");
+            retryableRequest.updateRetryCount("이유2");
+            retryableRequest.updateRetryCount("이유3");
 
             CouponEventLog failedLog = CouponEventLog.builder()
-                    .request(retryableRequest).eventType("test")
+                    .request(retryableRequest).eventType("test").payload("{}")
                     .processingStatus(EventProcessingStatus.RETRYING).build();
 
-            // ⚠️ NOTE: allFailed()도 내부에서 findById(null)을 호출하므로 any() 하나로 두 호출 모두 대응
+            // ⚠️ NOTE: allFailed()도 내부에서 findById를 호출하므로 any()로 두 호출 모두 대응
             given(couponIssueRequestRepository.findById(any())).willReturn(Optional.of(retryableRequest));
-            given(couponEventLogRepository.findByRequest_RequestId(any())).willReturn(Optional.of(failedLog));
+            given(couponEventLogRepository.findTopByRequest_RequestIdOrderByCreatedAtDesc(any()))
+                    .willReturn(Optional.of(failedLog));
 
             boolean result = couponIssueService.UpdateRetry(REQUEST_ID, "최종 실패");
 
             assertThat(result).isFalse();
+            // allFailed에서 새 FAILED 레코드 INSERT 검증
+            verify(couponEventLogRepository).save(any(CouponEventLog.class));
         }
 
         @Test

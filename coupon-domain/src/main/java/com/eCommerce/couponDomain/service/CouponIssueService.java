@@ -18,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -111,14 +110,23 @@ public class CouponIssueService {
 
     @Transactional
     public void updateCouponEventLog(Long issueRequestId, EventProcessingStatus status) {
-        // ⚠️ NOTE: findById(issueRequestId)는 eventId(PK)로 조회하므로 issueRequestId와 다를 수 있음
-        //          올바른 조회는 request_id(FK) 기준의 findByRequest_RequestId 사용
-        CouponEventLog request = couponEventLogRepository
-                .findByRequest_RequestId(issueRequestId)
+        // ⚠️ NOTE: OneToMany 전환 후 기존 로그 UPDATE 대신 새 레코드 INSERT
+        //          최신 로그에서 eventType/payload를 복사해 상태만 바꾼 새 레코드 생성
+        CouponIssueRequest request = couponIssueRequestRepository.findById(issueRequestId)
                 .orElseThrow(() ->
-                        new CouponIssueException(ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND, "해당 Event 존재하지 않습니다 : %d".formatted(issueRequestId)));
-        request.updateStatus(status);
+                        new CouponIssueException(ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND, "해당 request가 존재하지 않습니다 : %d".formatted(issueRequestId)));
 
+        CouponEventLog latest = couponEventLogRepository
+                .findTopByRequest_RequestIdOrderByCreatedAtDesc(issueRequestId)
+                .orElseThrow(() ->
+                        new CouponIssueException(ErrorCode.FAIL_COUPON_EVENT_LOG_ISSUE, "해당 Event 존재하지 않습니다 : %d".formatted(issueRequestId)));
+
+        saveCouponEventLog(CouponEventLog.builder()
+                .request(request)
+                .eventType(latest.getEventType())
+                .payload(latest.getPayload())
+                .processingStatus(status)
+                .build());
     }
 
     @Transactional
@@ -180,58 +188,43 @@ public class CouponIssueService {
 
     @Transactional
     public boolean UpdateRetry(Long IssueRequestId, String reason) {
-        Optional<CouponIssueRequest> issueRequestOptional = couponIssueRequestRepository.findById(IssueRequestId);
-
-        CouponIssueRequest couponIssueRequest = issueRequestOptional
+        CouponIssueRequest couponIssueRequest = couponIssueRequestRepository.findById(IssueRequestId)
                 .orElseThrow(() ->
                         new CouponIssueException(
                                 ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND,
                                 "존재하지 않는 발급요청 입니다 requestId: %d".formatted(IssueRequestId)));
 
-        //3번의 실패시 allFailed로 이동
-        if(couponIssueRequest.getRetryCount() >= 3){
-            allFailed(reason,couponIssueRequest.getRequestId());
+        // 3번의 실패 시 allFailed로 이동
+        if (couponIssueRequest.getRetryCount() >= 3) {
+            allFailed(reason, couponIssueRequest.getRequestId());
             return false;
         }
 
         couponIssueRequest.updateRetryCount(reason);
 
-        // ⚠️ NOTE: EventLog가 없으면 새로 생성 — 경고 후 넘어가면 downstream checkAlreadyEvent()에서
-        //          COUPON_ISSUE_REQUEST_NOT_FOUND 예외가 발생해 retryStep1 무한 루프 → allFailed 소진
-        //          EventLog를 복원해야 재처리 체인이 정상 진행될 수 있음
-        Optional<CouponEventLog> byRequestRequestId = couponEventLogRepository.findByRequest_RequestId(couponIssueRequest.getRequestId());
-        if (byRequestRequestId.isEmpty()) {
-            log.warn("[UpdateRetry] EventLog 없음, 복원 생성 - requestId: {}", IssueRequestId);
-            try {
-                CouponIssueEventDto dto = new CouponIssueEventDto(
-                        couponIssueRequest.getCampaign().getCouponId(),
-                        couponIssueRequest.getUserId(),
-                        couponIssueRequest.getRequestId()
-                );
-                couponEventLogRepository.save(
-                        CouponEventLog.builder()
-                                .request(couponIssueRequest)
-                                .payload(objectMapper.writeValueAsString(dto))
-                                .eventType("recovery")
-                                .processingStatus(EventProcessingStatus.PROGRESS)
-                                .build()
-                );
-            } catch (JsonProcessingException e) {
-                throw new CouponIssueException(ErrorCode.FAIL_COUPON_EVENT_LOG_ISSUE,
-                        "EventLog 복원 실패 requestId: %d".formatted(IssueRequestId));
-            }
-        } else {
-            byRequestRequestId.get().updateRetryStatus();
-        }
-        return true;
+        // ⚠️ NOTE: OneToMany 전환 후 기존 로그 UPDATE 대신 새 RETRYING 레코드 INSERT
+        //          최신 로그에서 eventType/payload 복사; 로그가 없으면 buildPayload()로 재생성
+        CouponEventLog latest = couponEventLogRepository
+                .findTopByRequest_RequestIdOrderByCreatedAtDesc(IssueRequestId)
+                .orElse(null);
 
+        String eventType = (latest != null) ? latest.getEventType() : "recovery";
+        String payload = (latest != null) ? latest.getPayload() : buildPayload(couponIssueRequest);
+
+        saveCouponEventLog(CouponEventLog.builder()
+                .request(couponIssueRequest)
+                .eventType(eventType)
+                .payload(payload)
+                .processingStatus(EventProcessingStatus.RETRYING)
+                .errorMessage(reason)
+                .build());
+
+        return true;
     }
 
     @Transactional
-    public void allFailed(String failReason,Long IssueRequestId) {
-        Optional<CouponIssueRequest> issueRequestOptional = couponIssueRequestRepository.findById(IssueRequestId);
-
-        CouponIssueRequest couponIssueRequest = issueRequestOptional
+    public void allFailed(String failReason, Long IssueRequestId) {
+        CouponIssueRequest couponIssueRequest = couponIssueRequestRepository.findById(IssueRequestId)
                 .orElseThrow(() ->
                         new CouponIssueException(
                                 ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND,
@@ -239,16 +232,22 @@ public class CouponIssueService {
 
         couponIssueRequest.updateAllFail(failReason);
 
-        // ⚠️ NOTE: UpdateRetry와 동일한 패턴 — EventLog 없으면 예외 대신 경고 로그
-        //          orElseThrow() 사용 시 롤백으로 updateAllFail()까지 되돌아가
-        //          status가 고착되는 문제 방지. allFailed는 IssueRequest 상태 변경이 핵심
-        Optional<CouponEventLog> byRequestRequestId = couponEventLogRepository.findByRequest_RequestId(couponIssueRequest.getRequestId());
-        if (byRequestRequestId.isEmpty()) {
-            log.warn("[AllFailed] EventLog 없음, IssueRequest 상태만 ALL_FAILED로 변경 - requestId: {}", IssueRequestId);
-        } else {
-            byRequestRequestId.get().updatefailedStatus();
-        }
+        // ⚠️ NOTE: OneToMany 전환 후 기존 로그 UPDATE 대신 새 FAILED 레코드 INSERT
+        //          로그가 없어도 buildPayload()로 재생성 후 FAILED 기록 — IssueRequest 상태 변경과 함께 이력 보존
+        CouponEventLog latest = couponEventLogRepository
+                .findTopByRequest_RequestIdOrderByCreatedAtDesc(IssueRequestId)
+                .orElse(null);
 
+        String eventType = (latest != null) ? latest.getEventType() : "recovery";
+        String payload = (latest != null) ? latest.getPayload() : buildPayload(couponIssueRequest);
+
+        saveCouponEventLog(CouponEventLog.builder()
+                .request(couponIssueRequest)
+                .eventType(eventType)
+                .payload(payload)
+                .processingStatus(EventProcessingStatus.FAILED)
+                .errorMessage(failReason)
+                .build());
     }
 
     // 5분 이상 REQUESTED에 멈춰있는 stuck 레코드 조회 (Kafka 발행 실패 등)
@@ -282,16 +281,29 @@ public class CouponIssueService {
 
     @Transactional(readOnly = true)
     public void checkAlreadyEvent(Long issueRequestId) {
-        // ⚠️ NOTE: 이벤트 로그가 없으면 유효하지 않은 요청 → NOT_FOUND
-        //          이벤트 로그가 있고 SUCCESS이면 이미 처리된 중복 요청 → DUPLICATED
-        Optional<CouponEventLog> EventByRequestId = couponEventLogRepository.findByRequest_RequestId(issueRequestId);
-        if(EventByRequestId.isEmpty()){
+        // ⚠️ NOTE: OneToMany 전환 후 단일 레코드 조회 불가 — exists 쿼리로 SUCCESS 여부 직접 확인
+        //          SUCCESS 먼저 체크 → 없으면 EventLog 자체 존재 여부 확인
+        boolean alreadySuccess = couponEventLogRepository
+                .existsByRequest_RequestIdAndProcessingStatus(issueRequestId, EventProcessingStatus.SUCCESS);
+        if (alreadySuccess) {
+            throw new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE_EVENT, "이미 처리된 쿠폰 이벤트입니다 issueRequestId=%d"
+                    .formatted(issueRequestId));
+        }
+        boolean exists = couponEventLogRepository
+                .findTopByRequest_RequestIdOrderByCreatedAtDesc(issueRequestId).isPresent();
+        if (!exists) {
             throw new CouponIssueException(ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND, "존재하지 않는 쿠폰 이벤트 요청입니다 issueRequestId=%d"
                     .formatted(issueRequestId));
         }
-        if(EventByRequestId.get().getProcessingStatus() == EventProcessingStatus.SUCCESS){
-            throw new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE_EVENT, "이미 처리된 쿠폰 이벤트입니다 issueRequestId=%d"
-                    .formatted(issueRequestId));
+    }
+
+    // UpdateRetry / allFailed에서 EventLog가 없을 때 payload 재생성용 헬퍼
+    private String buildPayload(CouponIssueRequest req) {
+        try {
+            return objectMapper.writeValueAsString(
+                    new CouponIssueEventDto(req.getCampaign().getCouponId(), req.getUserId(), req.getRequestId()));
+        } catch (JsonProcessingException e) {
+            return "{}";
         }
     }
 

@@ -101,7 +101,8 @@ Kafka 메시지 수신
        │
        ▼
   [STEP 1] 이벤트 중복 검증
-       │  - CouponEventLog.processingStatus == SUCCESS 이면 중복 → 즉시 종료
+       │  - CouponEventLog에 SUCCESS 레코드 존재 → 이미 처리 완료, 중복 → 즉시 종료 (retry 없음)
+       │  - CouponEventLog 자체 없음 → 유효하지 않은 요청 → retry-step1 발행
        │  - 중복 아니면 IssueRequest 상태를 PROCESSING으로 변경
        │  실패 시 → coupon-issue-retry-step1 발행
        │
@@ -115,7 +116,7 @@ Kafka 메시지 수신
        ▼
   [STEP 3] IssueRequest 상태 업데이트 + CouponEventLog 기록
        │  - IssueRequest.status = ISSUED
-       │  - CouponEventLog.processingStatus = SUCCESS
+       │  - CouponEventLog 새 레코드 INSERT (status=SUCCESS, 이전 로그에서 eventType/payload 복사)
        │  - CouponCampaign.issuedQuantity 증가
        │  실패 시 → coupon-issue-retry-step3 발행
        │
@@ -136,11 +137,13 @@ retry 토픽 수신
        │
        ▼
   UpdateRetry() 호출
-       ├── retryCount < 3  → retryCount 증가, RETRYING 상태로 변경
+       ├── retryCount < 3  → retryCount 증가
+       │                     CouponEventLog 새 레코드 INSERT (status=RETRYING, errorMessage 포함)
        │                     해당 STEP부터 재실행
        │
        └── retryCount >= 3 → allFailed() 호출
                               IssueRequest.status = FAILED_FATAL
+                              CouponEventLog 새 레코드 INSERT (status=FAILED, errorMessage 포함)
                               coupon-issue-all-fail 토픽 발행
 ```
 
@@ -199,6 +202,26 @@ PROCESSING 상태로 진행이 멈춘 레코드를 자동으로 감지하고 복
 
 ---
 
+### CouponEventLog 처리 이력 추적
+
+요청 1건에 대한 전체 처리 이력을 `coupon_event_log` 테이블에서 시계열로 조회할 수 있습니다.
+
+| 처리 시점 | processingStatus | 설명 |
+|-----------|-----------------|------|
+| 발급 요청 수신 | `PROGRESS` | 최초 이벤트 로그 생성 |
+| 재시도 발생 | `RETRYING` | 재시도마다 새 레코드 INSERT (errorMessage 포함) |
+| 처리 성공 | `SUCCESS` | 성공 시 새 레코드 INSERT |
+| 최종 실패 | `FAILED` | retryCount ≥ 3 소진 시 새 레코드 INSERT |
+
+```sql
+-- 요청 1건의 전체 처리 이력 조회
+SELECT * FROM coupon_event_log
+WHERE request_id = ?
+ORDER BY created_at ASC;
+```
+
+---
+
 ## 도메인 모델
 
 ```
@@ -206,10 +229,13 @@ CouponCampaign (캠페인)
     └── UserCoupon (발급된 쿠폰)
 
 CouponIssueRequest (발급 요청)
-    └── CouponEventLog (이벤트 처리 로그)
+    └── CouponEventLog[] (@ManyToOne — 시도마다 새 레코드 누적)
 
 OutboxEvent (Outbox 이벤트)
 ```
+
+> `CouponEventLog`는 요청 1건당 처리 시도(최초/재시도/완료/실패)마다 새 레코드를 INSERT하여
+> 전체 처리 이력을 보존합니다. 기존 레코드를 UPDATE하지 않습니다.
 
 ### IssueRequestStatus 상태 흐름
 
@@ -281,6 +307,21 @@ GET    /admin/user-coupons?userId=user1&page=0&size=20      - 유저 쿠폰 목�
   "size": 20
 }
 ```
+
+---
+
+## DB 마이그레이션
+
+### CouponEventLog OneToMany 전환 (신규 설치는 불필요)
+
+기존 DB에서 운영 중이었다면 `coupon_event_log.request_id`의 UNIQUE 제약을 제거해야 합니다.
+
+```sql
+-- 인덱스 이름은 실제 DB에서 확인 후 수정
+ALTER TABLE coupon_event_log DROP INDEX UK_request_id;
+```
+
+`schema.sql` 기준 신규 설치는 UNIQUE 제약이 없으므로 별도 작업 불필요.
 
 ---
 

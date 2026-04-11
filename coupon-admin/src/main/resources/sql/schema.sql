@@ -52,7 +52,7 @@ CREATE TABLE `coupon_event_log` (
   `request_id` bigint NOT NULL COMMENT '발급 요청 FK',
   `event_type` varchar(255) NOT NULL COMMENT '이벤트 유형 (예: ISSUE_REQUESTED, ISSUE_COMPLETED)',
   `payload` json COMMENT '이벤트 처리 당시 데이터',
-  `processing_status` ENUM ('SUCCESS', 'FAILED', 'RETRYING') NOT NULL COMMENT '처리 상태',
+  `processing_status` ENUM ('SUCCESS', 'FAILED', 'RETRYING', 'PROGRESS') NOT NULL COMMENT '처리 상태',
   `error_message` varchar(255) COMMENT '오류 메시지 (실패 시에만 기록)',
   `created_at` datetime NOT NULL COMMENT '로그 생성 일자'
 );
