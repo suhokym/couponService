@@ -59,4 +59,13 @@ public class CouponIssueOutboxService {
         event.markFailed();
     }
 
+    // ⑥ Step 4에서 Kafka 발행 직후 호출 - aggregateId(couponIssueRequestId)로 Outbox PUBLISHED 처리
+    // ⚠️ NOTE: Step 4 성공 시 즉시 PUBLISHED로 변경해야 5초 스케줄러의 중복 발행을 방지할 수 있다.
+    //          Outbox가 없으면 조용히 skip (Step 4 retry 경로에서는 이미 PUBLISHED일 수 있음)
+    @Transactional
+    public void markPublishedByAggregateId(Long aggregateId) {
+        outboxEventRepository.findByAggregateId(aggregateId)
+                .ifPresent(OutboxEvent::markPublished);
+    }
+
 }

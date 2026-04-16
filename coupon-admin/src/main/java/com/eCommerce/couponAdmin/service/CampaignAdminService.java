@@ -75,4 +75,23 @@ public class CampaignAdminService {
         campaign.updateStatus(request.status());
         return CouponCampaignDto.from(campaign);
     }
+
+    /**
+     * 캠페인 삭제
+     * ⚠️ NOTE: ACTIVE 상태 캠페인은 삭제 불가 — 진행 중인 발급 요청이 있을 수 있으므로 도메인 규칙으로 차단
+     */
+    @Transactional
+    public void delete(Long couponId) {
+        CouponCampaign campaign = campaignRepository.findById(couponId)
+                .orElseThrow(() -> new CouponIssueException(
+                        ErrorCode.COUPON_NOT_EXIST,
+                        "존재하지 않는 캠페인입니다. couponId=%d".formatted(couponId)));
+        // ACTIVE 상태 캠페인은 삭제 차단 (진행 중 발급 요청 보호)
+        if (campaign.getStatus() == CampaignStatus.ACTIVE) {
+            throw new CouponIssueException(
+                    ErrorCode.FAIL_COUPON_ISSUE_REQUEST,
+                    "ACTIVE 상태의 캠페인은 삭제할 수 없습니다. couponId=%d".formatted(couponId));
+        }
+        campaignRepository.delete(campaign);
+    }
 }

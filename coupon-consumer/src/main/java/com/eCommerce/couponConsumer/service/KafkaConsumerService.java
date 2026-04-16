@@ -8,6 +8,7 @@ import com.eCommerce.couponDomain.entity.UserCoupon;
 import com.eCommerce.couponDomain.entity.enums.*;
 import com.eCommerce.couponDomain.exception.CouponIssueException;
 import com.eCommerce.couponDomain.exception.ErrorCode;
+import com.eCommerce.couponDomain.service.CouponIssueOutboxService;
 import com.eCommerce.couponDomain.service.CouponIssueService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ import java.util.UUID;
 public class KafkaConsumerService {
 
     private final CouponIssueService couponIssueService;
+    private final CouponIssueOutboxService couponIssueOutboxService;
     private final KafkaProducingService kafkaProducingService;
     private final ObjectMapper objectMapper;
 
@@ -253,10 +255,13 @@ public class KafkaConsumerService {
     }
 
     // ── STEP 4: 발급 완료 Kafka 토픽 발행 ────────────────────────────────────
+    // ⚠️ NOTE: 발행 성공 시 즉시 Outbox를 PUBLISHED로 변경하여 5초 스케줄러의 중복 발행을 방지한다.
+    //          발행 실패 시 Outbox는 PENDING 상태로 유지 → 스케줄러가 at-least-once 전달 보장
     private void step4SendCompleteEvent(CouponIssueEventDto event) {
         log.info("[STEP 4] 발급 완료 이벤트 발행 시작 - couponIssueRequestId: {}", event.couponIssueRequestId());
         try {
             kafkaProducingService.cosumeIssueComplete(event);
+            couponIssueOutboxService.markPublishedByAggregateId(event.couponIssueRequestId());
             log.info("[STEP 4] 발급 완료 이벤트 발행 완료 - couponIssueRequestId: {}", event.couponIssueRequestId());
         } catch (Exception e) {
             log.error("[STEP 4 FAIL] 발급 완료 이벤트 발행 실패 - couponIssueRequestId: {}, cause: {}", event.couponIssueRequestId(), e.getMessage());

@@ -11,6 +11,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.http.HttpStatus;
+
 @Tag(name = "캠페인 관리", description = "쿠폰 캠페인 생성 및 상태 관리 API")
 @RestController
 @RequestMapping("/admin/campaigns")
@@ -61,5 +63,17 @@ public class CampaignAdminController {
             @PathVariable Long couponId,
             @RequestBody CampaignStatusUpdateRequest request) {
         return ResponseEntity.ok(campaignAdminService.updateStatus(couponId, request));
+    }
+
+    /**
+     * 캠페인 삭제 (INACTIVE / ENDED 상태만 허용)
+     * DELETE /admin/campaigns/{couponId}
+     */
+    @Operation(summary = "캠페인 삭제", description = "ACTIVE 상태 캠페인은 삭제 불가. INACTIVE 또는 ENDED 상태만 삭제 가능.")
+    @DeleteMapping("/{couponId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public ResponseEntity<Void> delete(@PathVariable Long couponId) {
+        campaignAdminService.delete(couponId);
+        return ResponseEntity.noContent().build();
     }
 }

@@ -9,8 +9,7 @@ couponService/
 ├── coupon-api        # WebFlux 기반 쿠폰 발급 API (Port: 8081)
 ├── coupon-consumer   # Kafka 이벤트 소비 및 실제 쿠폰 발급 처리 (Port: 8082)
 ├── coupon-admin      # 쿠폰 캠페인 관리 (Port: 8083)
-├── coupon-domain     # 공유 도메인 모델 및 비즈니스 로직
-└── product-stub      # 상품 서비스 Mock (Port: 8084)
+└── coupon-domain     # 공유 도메인 모델 및 비즈니스 로직
 ```
 
 ## 핵심 기술 스택
@@ -156,28 +155,6 @@ retry 토픽 수신
 실패한 단계부터만 재실행하므로 이미 성공한 단계를 반복하지 않습니다.
 각 retry 토픽에는 `failReason` 필드가 포함된 `CouponIssueRetryEventDto`가 실립니다.
 
-### StuckProcessingRecoveryScheduler
-
-PROCESSING 상태로 진행이 멈춘 레코드를 자동으로 감지하고 복구합니다.
-
-| 항목 | 값 |
-|------|----|
-| 실행 주기 | 60초 (fixedDelay) |
-| 감지 기준 | updatedAt < 현재 - 5분 이상 PROCESSING |
-| 복구 방식 | DB 상태를 REQUESTED로 리셋 후 원래 토픽으로 재발행 |
-
-```
-60초마다 실행
-       │
-       ▼
-  findStuckWithCampaign(PROCESSING, now - 5분)
-       │  JOIN FETCH로 campaign 즉시 로딩
-       ▼
-  각 stuck 레코드에 대해
-       ├── resetToRequested(requestId)  ─→ DB: REQUESTED
-       └── republishToOriginalTopic()   ─→ Kafka: 캠페인 타입에 맞는 원본 토픽
-```
-
 ---
 
 ## 설계 패턴
@@ -257,7 +234,6 @@ REQUESTED → PROCESSING → ISSUED
 | coupon-api | http://localhost:8081/swagger-ui.html |
 | coupon-consumer | http://localhost:8082/swagger-ui.html |
 | coupon-admin | http://localhost:8083/swagger-ui.html |
-| product-stub | http://localhost:8084/swagger-ui.html |
 
 ### 쿠폰 발급 API
 
