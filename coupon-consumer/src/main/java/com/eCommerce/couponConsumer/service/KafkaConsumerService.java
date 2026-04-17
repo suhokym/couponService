@@ -11,6 +11,8 @@ import com.eCommerce.couponDomain.exception.ErrorCode;
 import com.eCommerce.couponDomain.service.CouponIssueOutboxService;
 import com.eCommerce.couponDomain.service.CouponIssueService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -28,37 +30,65 @@ public class KafkaConsumerService {
     private final CouponIssueOutboxService couponIssueOutboxService;
     private final KafkaProducingService kafkaProducingService;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
 
-    // ── 메인 리스너: STEP 1 → 2 → 3 → 4 순서로 전체 실행 ────────────────────
     @KafkaListener(topics = "first-coupon-issue-requested", groupId = "coupon-group")
     public void consumeFristIssueRequest(CouponIssueEventDto event) {
-        log.info("[CONSUME] 메시지 수신 - couponIssueRequestId: {}, couponId: {}, userId: {}",
-                event.couponIssueRequestId(), event.couponId(), event.userId());
+        Timer.Sample sample = Timer.start(meterRegistry);
+        String status = "success";
 
-        CouponCampaign campaign = step1Validation(event);
-        if (campaign == null) return;
+        try {
+            log.info("[CONSUME] 메시지 수신 - couponIssueRequestId: {}, couponId: {}, userId: {}",
+                    event.couponIssueRequestId(), event.couponId(), event.userId());
 
-        if (!step2SaveUserCoupon(event, campaign)) return;
-        if (!step3UpdateStatusLog(event)) return;
-        step4SendCompleteEvent(event);
+            CouponCampaign campaign = step1Validation(event);
+            if (campaign == null) return;
+
+            if (!step2SaveUserCoupon(event, campaign)) return;
+            if (!step3UpdateStatusLog(event)) return;
+            step4SendCompleteEvent(event);
+        } catch (Exception e) {
+            status = "error";
+            throw e;
+        } finally {
+            sample.stop(meterRegistry.timer(
+                    "coupon.consumer.process.time",
+                    "topic", "first-coupon-issue-requested",
+                    "status", status
+            ));
+        }
     }
 
-    // ── 오픈 쿠폰 메인 리스너: STEP 1 → 2 → 3 → 4 순서로 전체 실행 ────────────────────
     @KafkaListener(topics = "open-coupon-issue-requested", groupId = "coupon-group-open")
     public void consumeOpenIssueRequest(CouponIssueEventDto event) {
-        log.info("[CONSUME] 메시지 수신 - couponIssueRequestId: {}, couponId: {}, userId: {}",
-                event.couponIssueRequestId(), event.couponId(), event.userId());
+        Timer.Sample sample = Timer.start(meterRegistry);
+        String status = "success";
 
-        CouponCampaign campaign = step1Validation(event);
-        if (campaign == null) return;
+        try {
+            log.info("[CONSUME] 메시지 수신 - couponIssueRequestId: {}, couponId: {}, userId: {}",
+                    event.couponIssueRequestId(), event.couponId(), event.userId());
 
-        if (!step2SaveUserCoupon(event, campaign)) return;
-        if (!step3UpdateStatusLog(event)) return;
-        step4SendCompleteEvent(event);
+            CouponCampaign campaign = step1Validation(event);
+            if (campaign == null) return;
+
+            if (!step2SaveUserCoupon(event, campaign)) return;
+            if (!step3UpdateStatusLog(event)) return;
+            step4SendCompleteEvent(event);
+        } catch (Exception e) {
+            status = "error";
+            throw e;
+        } finally {
+            sample.stop(meterRegistry.timer(
+                    "coupon.consumer.process.time",
+                    "topic", "open-coupon-issue-requested",
+                    "status", status
+            ));
+        }
     }
 
-    // ── 재시도 리스너: STEP 1 실패 시 재진입 ─────────────────────────────────
+
+            // ── 재시도 리스너: STEP 1 실패 시 재진입 ─────────────────────────────────
     @KafkaListener(topics = "coupon-issue-retry-step1", groupId = "coupon-group-retry", containerFactory = "retryContainerFactory")
     public void retryStep1(CouponIssueRetryEventDto retryEvent) {
         log.info("[RETRY STEP 1] 재시도 진입 - couponIssueRequestId: {}, failReason: {}",

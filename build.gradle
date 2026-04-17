@@ -34,6 +34,11 @@ subprojects {
         testRuntimeOnly("org.junit.platform:junit-platform-launcher")
         testImplementation 'io.projectreactor:reactor-test'
         testImplementation 'com.h2database:h2'
+            // Spring Boot Actuator (메트릭 엔드포인트 제공)
+            implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+            // Micrometer Prometheus 레지스트리 (Prometheus 포맷으로 메트릭 노출)
+            implementation 'io.micrometer:micrometer-registry-prometheus'
     }
 
     tasks.named('test') {
