@@ -29,29 +29,12 @@ public class KafkaProducingService {
     //          그 단계부터만 재실행되도록 함.
     //          failReason을 함께 실어 컨슈머 측에서 실패 원인을 파악할 수 있게 한다.
 
-    public void sendRetryStep1(CouponIssueEventDto event, String failReason) {
+    public void sendRecovery(CouponIssueEventDto event, String failReason) {
         CouponIssueRetryEventDto retryEvent = new CouponIssueRetryEventDto(
                 event.couponId(), event.userId(), event.couponIssueRequestId(), failReason);
-        retryKafkaTemplate.send("coupon-issue-retry-step1", String.valueOf(event.userId()), retryEvent);
+        retryKafkaTemplate.send("coupon-issue-recovery", String.valueOf(event.userId()), retryEvent);
     }
 
-    public void sendRetryStep2(CouponIssueEventDto event, String failReason) {
-        CouponIssueRetryEventDto retryEvent = new CouponIssueRetryEventDto(
-                event.couponId(), event.userId(), event.couponIssueRequestId(), failReason);
-        retryKafkaTemplate.send("coupon-issue-retry-step2", String.valueOf(event.userId()), retryEvent);
-    }
-
-    public void sendRetryStep3(CouponIssueEventDto event, String failReason) {
-        CouponIssueRetryEventDto retryEvent = new CouponIssueRetryEventDto(
-                event.couponId(), event.userId(), event.couponIssueRequestId(), failReason);
-        retryKafkaTemplate.send("coupon-issue-retry-step3", String.valueOf(event.userId()), retryEvent);
-    }
-
-    public void sendRetryStep4(CouponIssueEventDto event, String failReason) {
-        CouponIssueRetryEventDto retryEvent = new CouponIssueRetryEventDto(
-                event.couponId(), event.userId(), event.couponIssueRequestId(), failReason);
-        retryKafkaTemplate.send("coupon-issue-retry-step4", String.valueOf(event.userId()), retryEvent);
-    }
 
     // ⚠️ NOTE: retryCount >= 3 초과로 더 이상 재시도 불가 시 발행.
     //          DB allFailed() 처리는 UpdateRetry() 내부에서 이미 완료된 상태.

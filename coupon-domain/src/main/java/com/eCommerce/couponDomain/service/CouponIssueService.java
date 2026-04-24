@@ -58,6 +58,13 @@ public class CouponIssueService {
     }
 
     @Transactional
+    public void saveAllUserCouponsAndOutbox(List<UserCoupon> userCoupons,
+                                            List<OutboxEvent> outboxEvents) {
+        userCouponRepository.saveAll(userCoupons);
+        outboxEventRepository.saveAll(outboxEvents);
+    }
+
+    @Transactional
     public void saveUserCoupon(UserCoupon event, OutboxEvent outboxEvent) {
         // ⚠️ NOTE: couponCode는 UNIQUE 제약 포함 — blank 검증도 추가
         if (event == null

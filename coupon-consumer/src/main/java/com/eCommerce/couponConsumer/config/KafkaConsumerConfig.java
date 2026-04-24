@@ -29,6 +29,7 @@ public class KafkaConsumerConfig {
         ConcurrentKafkaListenerContainerFactory<String, CouponIssueRetryEventDto> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(cf);
+        factory.setBatchListener(true);
         return factory;
     }
 

@@ -24,6 +24,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -47,12 +48,9 @@ class KafkaConsumerServiceTest {
     @Mock
     private KafkaTemplate<String, CouponIssueEventDto> kafkaTemplate;
 
-    // ⚠️ NOTE: KafkaProducingService를 @Mock으로 등록해야 step 실패 시 NPE를 방지한다.
-    //          없으면 예외 catch 후 sendRetryStepX 호출 시 NullPointerException 발생.
     @Mock
     private KafkaProducingService kafkaProducingService;
 
-    // ⚠️ NOTE: step2에서 OutboxEvent payload 직렬화에 사용되므로 mock 필요
     @Mock
     private ObjectMapper objectMapper;
 
@@ -61,6 +59,7 @@ class KafkaConsumerServiceTest {
     private static final long REQUEST_ID = 1L;
 
     private CouponIssueEventDto event;
+    private List<CouponIssueEventDto> eventBatch;
     private CouponIssueRetryEventDto retryEvent;
     private CouponCampaign firstComeCampaign;
     private CouponCampaign openCampaign;
@@ -68,6 +67,7 @@ class KafkaConsumerServiceTest {
     @BeforeEach
     void setUp() {
         event = new CouponIssueEventDto(COUPON_ID, USER_ID, REQUEST_ID);
+        eventBatch = List.of(event);
         retryEvent = new CouponIssueRetryEventDto(COUPON_ID, USER_ID, REQUEST_ID, "테스트 실패");
 
         firstComeCampaign = CouponCampaign.builder()
@@ -89,38 +89,60 @@ class KafkaConsumerServiceTest {
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 메인 리스너: FIRST_COME
+    // 메인 리스너: FIRST_COME (배치)
     // ══════════════════════════════════════════════════════════════
 
     @Nested
-    @DisplayName("FIRST_COME 메인 리스너")
+    @DisplayName("FIRST_COME 메인 리스너 (배치)")
     class FirstComeMainListener {
 
         @Test
         @DisplayName("정상 흐름: step1~4 모두 실행되고 updateIssuedQuantity 호출됨")
         void success_updatesIssuedQuantity() {
-            // ⚠️ NOTE: step1(findCoupon) + step3(findCoupon) = 총 2회 호출
             given(couponIssueService.findCoupon(COUPON_ID)).willReturn(firstComeCampaign);
 
-            kafkaConsumerService.consumeFristIssueRequest(event);
+            kafkaConsumerService.consumeFristIssueRequest(eventBatch);
 
-            verify(couponIssueService).saveUserCoupon(any(), any());
+            // step2: 벌크 저장
+            verify(couponIssueService).saveAllUserCouponsAndOutbox(anyList(), anyList());
             verify(couponIssueService).updateCouponEventLog(REQUEST_ID, EventProcessingStatus.SUCCESS);
             verify(couponIssueService).updateIssueRequestStatus(REQUEST_ID, IssueRequestStatus.ISSUED);
-            // FIRST_COME은 수량 증가 필수
             verify(couponIssueService).updateIssuedQuantity(COUPON_ID);
             verify(kafkaProducingService).cosumeIssueComplete(event);
         }
 
         @Test
-        @DisplayName("step3에서 findCoupon을 재호출해 캠페인 타입을 DB에서 확인한다")
-        void step3_callsFindCouponAgainForTypeCheck() {
+        @DisplayName("배치 여러 건: 검증 통과한 건만 벌크 저장됨")
+        void batchMultipleEvents_onlyValidSaved() {
+            CouponIssueEventDto event2 = new CouponIssueEventDto(COUPON_ID, "user2", 2L);
+            CouponIssueEventDto event3 = new CouponIssueEventDto(COUPON_ID, "user3", 3L);
+            List<CouponIssueEventDto> batch = List.of(event, event2, event3);
+
+            // event1: 통과, event2: 중복으로 skip, event3: 통과
             given(couponIssueService.findCoupon(COUPON_ID)).willReturn(firstComeCampaign);
+            willThrow(new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE_EVENT, "중복"))
+                    .given(couponIssueService).checkAlreadyEvent(2L);
 
-            kafkaConsumerService.consumeFristIssueRequest(event);
+            kafkaConsumerService.consumeFristIssueRequest(batch);
 
-            // step1 1회 + step3 1회 = 합계 2회
-            verify(couponIssueService, times(2)).findCoupon(COUPON_ID);
+            // 벌크 저장 1회 호출 (2건만)
+            verify(couponIssueService, times(1)).saveAllUserCouponsAndOutbox(anyList(), anyList());
+            // step3/4는 통과한 2건만
+            verify(couponIssueService, times(2)).updateCouponEventLog(anyLong(), eq(EventProcessingStatus.SUCCESS));
+            verify(kafkaProducingService, times(2)).cosumeIssueComplete(any());
+            // 중복 건은 retry 발행 안 됨
+            verify(kafkaProducingService, never()).sendRetryStep1(eq(event2), any());
+        }
+
+        @Test
+        @DisplayName("전체 검증 실패 → saveAllUserCouponsAndOutbox 호출 안 됨")
+        void allValidationFail_noSave() {
+            willThrow(new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE_EVENT, "중복"))
+                    .given(couponIssueService).checkAlreadyEvent(REQUEST_ID);
+
+            kafkaConsumerService.consumeFristIssueRequest(eventBatch);
+
+            verify(couponIssueService, never()).saveAllUserCouponsAndOutbox(anyList(), anyList());
         }
 
         @Test
@@ -129,54 +151,47 @@ class KafkaConsumerServiceTest {
             willThrow(new CouponIssueException(ErrorCode.COUPON_NOT_EXIST, "쿠폰 없음"))
                     .given(couponIssueService).findCoupon(COUPON_ID);
 
-            kafkaConsumerService.consumeFristIssueRequest(event);
+            kafkaConsumerService.consumeFristIssueRequest(eventBatch);
 
             verify(kafkaProducingService).sendRetryStep1(eq(event), any());
-            verify(couponIssueService, never()).saveUserCoupon(any(), any());
-            verify(couponIssueService, never()).updateCouponEventLog(any(), any());
-            verify(couponIssueService, never()).updateIssuedQuantity(anyLong());
+            verify(couponIssueService, never()).saveAllUserCouponsAndOutbox(anyList(), anyList());
         }
 
         @Test
-        @DisplayName("step1: checkAlreadyEvent DUPLICATED_COUPON_ISSUE_EVENT → 멱등성 보장, retry 없이 종료")
+        @DisplayName("step1: checkAlreadyEvent DUPLICATED → 멱등성 보장, retry 없이 종료")
         void step1_checkAlreadyEventFails_skipsRetry() {
-            // ⚠️ NOTE: DUPLICATED_COUPON_ISSUE_EVENT는 이미 처리 완료된 요청 → 무한 retry 방지를 위해
-            //          sendRetryStep1 미발행, step2 이후 실행 안 됨
             willThrow(new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE_EVENT, "중복 이벤트"))
                     .given(couponIssueService).checkAlreadyEvent(REQUEST_ID);
 
-            kafkaConsumerService.consumeFristIssueRequest(event);
+            kafkaConsumerService.consumeFristIssueRequest(eventBatch);
 
             verify(kafkaProducingService, never()).sendRetryStep1(any(), any());
-            verify(couponIssueService, never()).saveUserCoupon(any(), any());
+            verify(couponIssueService, never()).saveAllUserCouponsAndOutbox(anyList(), anyList());
         }
 
         @Test
-        @DisplayName("step1: checkAlreadyIssuedUserCoupon DUPLICATED_COUPON_ISSUE → 멱등성 보장, retry 없이 종료")
+        @DisplayName("step1: checkAlreadyIssuedUserCoupon DUPLICATED → 멱등성 보장, retry 없이 종료")
         void step1_duplicateUserCoupon_skipsRetry() {
-            // ⚠️ NOTE: DUPLICATED_COUPON_ISSUE는 이미 쿠폰이 발급된 사용자 → 무한 retry 방지를 위해
-            //          sendRetryStep1 미발행, step2 이후 실행 안 됨
             willThrow(new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE, "이미 발급"))
                     .given(couponIssueService).checkAlreadyIssuedUserCoupon(COUPON_ID, USER_ID, REQUEST_ID);
 
-            kafkaConsumerService.consumeFristIssueRequest(event);
+            kafkaConsumerService.consumeFristIssueRequest(eventBatch);
 
             verify(kafkaProducingService, never()).sendRetryStep1(any(), any());
-            verify(couponIssueService, never()).saveUserCoupon(any(), any());
+            verify(couponIssueService, never()).saveAllUserCouponsAndOutbox(anyList(), anyList());
         }
 
         @Test
-        @DisplayName("step2: saveUserCoupon 실패 → sendRetryStep2 발행, step3/4 실행 안 됨")
-        void step2_saveUserCouponFails_sendsRetryAndStops() {
+        @DisplayName("step2: 벌크 저장 실패 → 예외 발생")
+        void step2_bulkSaveFails_throwsException() {
             given(couponIssueService.findCoupon(COUPON_ID)).willReturn(firstComeCampaign);
-            willThrow(new RuntimeException("DB 저장 실패"))
-                    .given(couponIssueService).saveUserCoupon(any(), any());
+            willThrow(new RuntimeException("DB 벌크 저장 실패"))
+                    .given(couponIssueService).saveAllUserCouponsAndOutbox(anyList(), anyList());
 
-            kafkaConsumerService.consumeFristIssueRequest(event);
+            org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, () ->
+                    kafkaConsumerService.consumeFristIssueRequest(eventBatch));
 
-            verify(kafkaProducingService).sendRetryStep2(eq(event), any());
             verify(couponIssueService, never()).updateCouponEventLog(any(), any());
-            verify(couponIssueService, never()).updateIssuedQuantity(anyLong());
             verify(kafkaProducingService, never()).cosumeIssueComplete(any());
         }
 
@@ -187,7 +202,7 @@ class KafkaConsumerServiceTest {
             willThrow(new RuntimeException("이벤트 로그 실패"))
                     .given(couponIssueService).updateCouponEventLog(REQUEST_ID, EventProcessingStatus.SUCCESS);
 
-            kafkaConsumerService.consumeFristIssueRequest(event);
+            kafkaConsumerService.consumeFristIssueRequest(eventBatch);
 
             verify(kafkaProducingService).sendRetryStep3(eq(event), any());
             verify(kafkaProducingService, never()).cosumeIssueComplete(any());
@@ -200,7 +215,7 @@ class KafkaConsumerServiceTest {
             willThrow(new RuntimeException("Kafka 발행 실패"))
                     .given(kafkaProducingService).cosumeIssueComplete(event);
 
-            kafkaConsumerService.consumeFristIssueRequest(event);
+            kafkaConsumerService.consumeFristIssueRequest(eventBatch);
 
             verify(kafkaProducingService).sendRetryStep4(eq(event), any());
         }
@@ -210,7 +225,7 @@ class KafkaConsumerServiceTest {
         void step1_processingSetBeforeFindCoupon() {
             given(couponIssueService.findCoupon(COUPON_ID)).willReturn(firstComeCampaign);
 
-            kafkaConsumerService.consumeFristIssueRequest(event);
+            kafkaConsumerService.consumeFristIssueRequest(eventBatch);
 
             InOrder inOrder = inOrder(couponIssueService);
             inOrder.verify(couponIssueService).updateIssueRequestStatus(REQUEST_ID, IssueRequestStatus.PROCESSING);
@@ -219,43 +234,42 @@ class KafkaConsumerServiceTest {
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 메인 리스너: OPEN
+    // 메인 리스너: OPEN (배치)
     // ══════════════════════════════════════════════════════════════
 
     @Nested
-    @DisplayName("OPEN 메인 리스너")
+    @DisplayName("OPEN 메인 리스너 (배치)")
     class OpenMainListener {
 
         @Test
         @DisplayName("정상 흐름: step1~4 모두 실행되고 updateIssuedQuantity는 호출 안 됨")
         void success_skipsUpdateIssuedQuantity() {
-            // ⚠️ NOTE: OPEN은 수량 제한 없으므로 step3에서 updateIssuedQuantity를 skip한다
             given(couponIssueService.findCoupon(COUPON_ID)).willReturn(openCampaign);
 
-            kafkaConsumerService.consumeOpenIssueRequest(event);
+            kafkaConsumerService.consumeOpenIssueRequest(eventBatch);
 
-            verify(couponIssueService).saveUserCoupon(any(), any());
+            verify(couponIssueService).saveAllUserCouponsAndOutbox(anyList(), anyList());
             verify(couponIssueService).updateCouponEventLog(REQUEST_ID, EventProcessingStatus.SUCCESS);
             verify(couponIssueService).updateIssueRequestStatus(REQUEST_ID, IssueRequestStatus.ISSUED);
             verify(couponIssueService, never()).updateIssuedQuantity(anyLong());
         }
 
         @Test
-        @DisplayName("step2 실패 → sendRetryStep2 발행, updateIssuedQuantity 호출 안 됨")
-        void step2_fails_sendsRetry_noQuantityUpdate() {
+        @DisplayName("step2 벌크 저장 실패 → 예외 발생, updateIssuedQuantity 호출 안 됨")
+        void step2_fails_throwsException_noQuantityUpdate() {
             given(couponIssueService.findCoupon(COUPON_ID)).willReturn(openCampaign);
             willThrow(new RuntimeException("DB 실패"))
-                    .given(couponIssueService).saveUserCoupon(any(), any());
+                    .given(couponIssueService).saveAllUserCouponsAndOutbox(anyList(), anyList());
 
-            kafkaConsumerService.consumeOpenIssueRequest(event);
+            org.junit.jupiter.api.Assertions.assertThrows(RuntimeException.class, () ->
+                    kafkaConsumerService.consumeOpenIssueRequest(eventBatch));
 
-            verify(kafkaProducingService).sendRetryStep2(eq(event), any());
             verify(couponIssueService, never()).updateIssuedQuantity(anyLong());
         }
     }
 
     // ══════════════════════════════════════════════════════════════
-    // 재시도 리스너
+    // 재시도 리스너 (기존 단건 — 변경 없음)
     // ══════════════════════════════════════════════════════════════
 
     @Nested
@@ -266,7 +280,6 @@ class KafkaConsumerServiceTest {
         @DisplayName("retryStep1: 재시도 가능 → step1~4 정상 실행")
         void retryStep1_canRetry_executesFullFlow() {
             given(couponIssueService.UpdateRetry(REQUEST_ID, "테스트 실패")).willReturn(true);
-            // step1(findCoupon) + step3(findCoupon) = 2회
             given(couponIssueService.findCoupon(COUPON_ID)).willReturn(firstComeCampaign);
 
             kafkaConsumerService.retryStep1(retryEvent);
@@ -292,7 +305,6 @@ class KafkaConsumerServiceTest {
         @DisplayName("retryStep2: 재시도 가능 → step2~4 정상 실행")
         void retryStep2_canRetry_executesFromStep2() {
             given(couponIssueService.UpdateRetry(REQUEST_ID, "테스트 실패")).willReturn(true);
-            // retryStep2 body(findCoupon) + step3(findCoupon) = 2회
             given(couponIssueService.findCoupon(COUPON_ID)).willReturn(firstComeCampaign);
 
             kafkaConsumerService.retryStep2(retryEvent);
@@ -317,7 +329,6 @@ class KafkaConsumerServiceTest {
         @DisplayName("retryStep3: FIRST_COME 타입 → updateIssuedQuantity 호출됨")
         void retryStep3_firstCome_updatesQuantity() {
             given(couponIssueService.UpdateRetry(REQUEST_ID, "테스트 실패")).willReturn(true);
-            // step3에서 findCoupon 1회 (타입 확인용)
             given(couponIssueService.findCoupon(COUPON_ID)).willReturn(firstComeCampaign);
 
             kafkaConsumerService.retryStep3(retryEvent);
@@ -328,7 +339,6 @@ class KafkaConsumerServiceTest {
         @Test
         @DisplayName("retryStep3: OPEN 타입 → updateIssuedQuantity 호출 안 됨")
         void retryStep3_open_skipsQuantityUpdate() {
-            // ⚠️ NOTE: campaignType이 DTO에 없어도 DB 조회(findCoupon)로 OPEN을 정확히 판별
             given(couponIssueService.UpdateRetry(REQUEST_ID, "테스트 실패")).willReturn(true);
             given(couponIssueService.findCoupon(COUPON_ID)).willReturn(openCampaign);
 
