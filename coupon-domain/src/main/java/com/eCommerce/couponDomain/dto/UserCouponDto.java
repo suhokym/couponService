@@ -22,7 +22,7 @@ public record UserCouponDto(
         return new UserCouponDto(
                 entity.getUserCouponId(),
                 entity.getUserId(),
-                entity.getCampaign().getCouponId(),
+                entity.getCouponId(),
                 entity.getCouponCode(),
                 entity.getStatus(),
                 entity.getReservedOrderId(),

@@ -5,6 +5,7 @@ import com.eCommerce.couponDomain.entity.enums.IssueRequestStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -32,4 +33,10 @@ public interface CouponIssueRequestRepository extends JpaRepository<CouponIssueR
     @Query("SELECT r FROM CouponIssueRequest r JOIN FETCH r.campaign WHERE r.status = :status AND r.updatedAt < :threshold")
     List<CouponIssueRequest> findStuckWithCampaign(@Param("status") IssueRequestStatus status,
                                                    @Param("threshold") LocalDateTime threshold);
+
+    // ⚠️ NOTE: 벌크 처리용 — 여러 requestId의 상태를 한 번의 UPDATE 쿼리로 변경
+    //          1차 캐시를 거치지 않으므로 @Modifying 필수
+    @Modifying
+    @Query("UPDATE CouponIssueRequest r SET r.status = :status WHERE r.requestId IN :ids")
+    void bulkUpdateStatus(@Param("ids") List<Long> ids, @Param("status") IssueRequestStatus status);
 }

@@ -173,7 +173,7 @@ class CouponIssueServiceTest {
         @DisplayName("발급 이력 없음 — 예외 없음")
         void noDuplicate_noException() {
             // ⚠️ NOTE: existsByCampaign_... false → failAlreadyHadUserCoupon 미호출 → findByRequestId stub 불필요
-            given(userCouponRepository.existsByCampaign_CouponIdAndUserId(COUPON_ID, USER_ID))
+            given(userCouponRepository.existsByCouponIdAndUserId(COUPON_ID, USER_ID))
                     .willReturn(false);
 
             assertThatCode(() -> couponIssueService.checkAlreadyIssuedUserCoupon(COUPON_ID, USER_ID, REQUEST_ID))
@@ -183,7 +183,7 @@ class CouponIssueServiceTest {
         @Test
         @DisplayName("이미 발급된 쿠폰 → DUPLICATED_COUPON_ISSUE 예외")
         void duplicate_throwsDuplicated() {
-            given(userCouponRepository.existsByCampaign_CouponIdAndUserId(COUPON_ID, USER_ID))
+            given(userCouponRepository.existsByCouponIdAndUserId(COUPON_ID, USER_ID))
                     .willReturn(true);
             given(couponIssueRequestRepository.findByRequestId(REQUEST_ID))
                     .willReturn(Optional.of(CouponIssueRequest.builder()
@@ -418,7 +418,7 @@ class CouponIssueServiceTest {
         @DisplayName("couponCode 빈 문자열 → FAIL_COUPON_ISSUE_REQUEST 예외")
         void blankCouponCode_throwsFail() {
             UserCoupon userCoupon = UserCoupon.builder()
-                    .userId(USER_ID).campaign(activeCampaign)
+                    .userId(USER_ID).couponId(COUPON_ID)
                     .couponCode("")  // 빈 코드
                     .status(UserCouponStatus.ISSUED)
                     .expiredAt(LocalDateTime.now().plusDays(30))

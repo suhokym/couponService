@@ -30,9 +30,10 @@ public class UserCoupon extends BaseTimeEntity {
     @Column(nullable = false)
     private String userId; // 쿠폰 소유 사용자 ID
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "campaign_id", nullable = false)
-    private CouponCampaign campaign; // 발급된 캠페인
+    // ⚠️ NOTE: CouponCampaign 연관관계 제거 — coupon_id FK만 보관
+    //          JOIN 없이 발급 여부 체크·수량 동기화가 가능하고, 배치 저장 시 엔티티 로딩 불필요
+    @Column(name = "coupon_id", nullable = false)
+    private Long couponId; // 발급된 캠페인 ID
 
     @Column(unique = true, nullable = false)
     private String couponCode; // 고유 쿠폰 코드

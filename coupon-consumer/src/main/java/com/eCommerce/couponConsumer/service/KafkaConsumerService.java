@@ -3,6 +3,7 @@ package com.eCommerce.couponConsumer.service;
 import com.eCommerce.couponDomain.dto.CouponIssueEventDto;
 import com.eCommerce.couponDomain.dto.CouponIssueRetryEventDto;
 import com.eCommerce.couponDomain.entity.CouponCampaign;
+import com.eCommerce.couponDomain.entity.CouponEventLog;
 import com.eCommerce.couponDomain.entity.OutboxEvent;
 import com.eCommerce.couponDomain.entity.UserCoupon;
 import com.eCommerce.couponDomain.entity.enums.*;
@@ -21,6 +22,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -34,6 +37,10 @@ public class KafkaConsumerService {
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
 
+    // ══════════════════════════════════════════════════════════════
+    // 메인 배치 리스너
+    // ══════════════════════════════════════════════════════════════
+
     @KafkaListener(topics = "first-coupon-issue-requested",
             groupId = "coupon-group",
             containerFactory = "batchContainerFactory")
@@ -44,31 +51,47 @@ public class KafkaConsumerService {
         try {
             log.info("[BATCH] {} 건 수신", events.size());
 
-            // STEP 1: 사전 검증 (건별 — 기존 로직 그대로)
-            List<BatchItem> validItems = new ArrayList<>();
-            for (CouponIssueEventDto event : events) {
-                CouponCampaign campaign = step1Validation(event);
-                if (campaign != null) {
-                    validItems.add(new BatchItem(event, campaign));
-                }
-            }
+            // 배치 수신 건수
+            meterRegistry.counter("coupon.batch.received",
+                    "topic", "first-coupon-issue-requested").increment(events.size());
+
+            // STEP 1: 사전 검증 — Pre-fetch 방식 (4쿼리 총합, 기존 N×6 대비)
+            Timer.Sample step1Sample = Timer.start(meterRegistry);
+            List<BatchItem> validItems = step1ValidationBatch(events, "first-coupon-issue-requested");
+            step1Sample.stop(meterRegistry.timer("coupon.step.time",
+                    "step", "step1", "topic", "first-coupon-issue-requested"));
+
+            // 검증 통과/실패 건수
+            meterRegistry.counter("coupon.batch.validated",
+                    "topic", "first-coupon-issue-requested").increment(validItems.size());
+            meterRegistry.counter("coupon.batch.validation.failed",
+                    "topic", "first-coupon-issue-requested").increment(events.size() - validItems.size());
 
             if (validItems.isEmpty()) {
                 log.info("[BATCH] 검증 통과 건 없음 — skip");
                 return;
             }
 
-            // STEP 2: 유저 쿠폰 벌크 저장 (핵심 변경)
+            // STEP 2: 유저 쿠폰 벌크 저장
+            Timer.Sample step2Sample = Timer.start(meterRegistry);
             step2SaveUserCouponBatch(validItems);
+            step2Sample.stop(meterRegistry.timer("coupon.step.time",
+                    "step", "step2_batch", "topic", "first-coupon-issue-requested"));
 
-            // STEP 3: 상태/로그 업데이트 (건별 — 기존 로직 그대로)
-            for (BatchItem item : validItems) {
-                step3UpdateStatusLog(item.event());
-            }
+            // STEP 3: 상태/로그 벌크 업데이트
+            Timer.Sample step3Sample = Timer.start(meterRegistry);
+            boolean step3Success = step3UpdateStatusLogBatch(validItems);
+            step3Sample.stop(meterRegistry.timer("coupon.step.time",
+                    "step", "step3_batch", "topic", "first-coupon-issue-requested"));
 
-            // STEP 4: 발급 완료 이벤트 발행 (건별 — 기존 로직 그대로)
-            for (BatchItem item : validItems) {
-                step4SendCompleteEvent(item.event());
+            // STEP 4: 발급 완료 이벤트 발행 (건별) — step3 실패 시 recovery가 대신 처리하므로 skip
+            if (step3Success) {
+                Timer.Sample step4Sample = Timer.start(meterRegistry);
+                for (BatchItem item : validItems) {
+                    step4SendCompleteEvent(item.event());
+                }
+                step4Sample.stop(meterRegistry.timer("coupon.step.time",
+                        "step", "step4", "topic", "first-coupon-issue-requested"));
             }
 
             log.info("[BATCH] 처리 완료 - 수신: {}, 처리: {}", events.size(), validItems.size());
@@ -94,27 +117,43 @@ public class KafkaConsumerService {
         try {
             log.info("[BATCH] {} 건 수신 - topic: open-coupon-issue-requested", events.size());
 
-            List<BatchItem> validItems = new ArrayList<>();
-            for (CouponIssueEventDto event : events) {
-                CouponCampaign campaign = step1Validation(event);
-                if (campaign != null) {
-                    validItems.add(new BatchItem(event, campaign));
-                }
-            }
+            meterRegistry.counter("coupon.batch.received",
+                    "topic", "open-coupon-issue-requested").increment(events.size());
+
+            // STEP 1: 사전 검증 — Pre-fetch 방식 (4쿼리 총합, 기존 N×6 대비)
+            Timer.Sample step1Sample = Timer.start(meterRegistry);
+            List<BatchItem> validItems = step1ValidationBatch(events, "open-coupon-issue-requested");
+            step1Sample.stop(meterRegistry.timer("coupon.step.time",
+                    "step", "step1", "topic", "open-coupon-issue-requested"));
+
+            meterRegistry.counter("coupon.batch.validated",
+                    "topic", "open-coupon-issue-requested").increment(validItems.size());
+            meterRegistry.counter("coupon.batch.validation.failed",
+                    "topic", "open-coupon-issue-requested").increment(events.size() - validItems.size());
 
             if (validItems.isEmpty()) {
                 log.info("[BATCH] 검증 통과 건 없음 — skip");
                 return;
             }
 
+            Timer.Sample step2Sample = Timer.start(meterRegistry);
             step2SaveUserCouponBatch(validItems);
+            step2Sample.stop(meterRegistry.timer("coupon.step.time",
+                    "step", "step2_batch", "topic", "open-coupon-issue-requested"));
 
-            for (BatchItem item : validItems) {
-                step3UpdateStatusLog(item.event());
-            }
+            Timer.Sample step3Sample = Timer.start(meterRegistry);
+            boolean step3Success = step3UpdateStatusLogBatch(validItems);
+            step3Sample.stop(meterRegistry.timer("coupon.step.time",
+                    "step", "step3_batch", "topic", "open-coupon-issue-requested"));
 
-            for (BatchItem item : validItems) {
-                step4SendCompleteEvent(item.event());
+            // STEP 4: step3 실패 시 recovery가 대신 처리하므로 skip
+            if (step3Success) {
+                Timer.Sample step4Sample = Timer.start(meterRegistry);
+                for (BatchItem item : validItems) {
+                    step4SendCompleteEvent(item.event());
+                }
+                step4Sample.stop(meterRegistry.timer("coupon.step.time",
+                        "step", "step4", "topic", "open-coupon-issue-requested"));
             }
 
             log.info("[BATCH] 처리 완료 - 수신: {}, 처리: {}", events.size(), validItems.size());
@@ -131,76 +170,88 @@ public class KafkaConsumerService {
     }
 
     // ══════════════════════════════════════════════════════════════
-// 재시도 리스너: 상태 기반 복구 (Recovery)
-// ══════════════════════════════════════════════════════════════
-// ⚠️ NOTE: 기존 "같은 step 재실행" → "현재 상태 확인 후 남은 step만 실행"으로 변경
-//          어디까지 처리됐는지 DB 상태를 보고 판단하므로
-//          step별로 retry 토픽을 나눌 필요 없이 하나로 통합 가능
+    // 상태 기반 복구 리스너 (Recovery)
+    // ══════════════════════════════════════════════════════════════
 
-    // ── 통합 retry 리스너 ──
-// ⚠️ NOTE: step1~4 retry 토픽을 하나로 합쳐도 되지만,
-//          기존 토픽 구조 유지하면서 내부 로직만 통합
     @KafkaListener(topics = {
             "coupon-issue-recovery",
     }, groupId = "coupon-group-retry", containerFactory = "retryContainerFactory")
     public void retryRecover(CouponIssueRetryEventDto retryEvent) {
+        Timer.Sample sample = Timer.start(meterRegistry);
         log.info("[RETRY RECOVER] 복구 진입 - couponIssueRequestId: {}, failReason: {}",
                 retryEvent.couponIssueRequestId(), retryEvent.failReason());
+
+        // recovery 진입 카운터
+        meterRegistry.counter("coupon.recovery.received").increment();
 
         CouponIssueEventDto event = new CouponIssueEventDto(
                 retryEvent.couponId(), retryEvent.userId(), retryEvent.couponIssueRequestId());
 
-        // retryCount 체크 — 3회 초과 시 allFail
-        boolean canRetry = couponIssueService.UpdateRetry(
-                retryEvent.couponIssueRequestId(), retryEvent.failReason());
+        // ⚠️ NOTE: UpdateRetry 예외를 여기서 삼킴 — 탈출 시 Kafka DefaultErrorHandler가
+        //          retryCount 증가 없이 동일 메시지를 무한 재시도하는 루프를 차단하기 위함
+        boolean canRetry;
+        try {
+            canRetry = couponIssueService.UpdateRetry(
+                    retryEvent.couponIssueRequestId(), retryEvent.failReason());
+        } catch (Exception e) {
+            log.error("[RETRY RECOVER FAIL] UpdateRetry 실패 - couponIssueRequestId: {}, cause: {}",
+                    retryEvent.couponIssueRequestId(), e.getMessage());
+            meterRegistry.counter("coupon.recovery.failed").increment();
+            sample.stop(meterRegistry.timer("coupon.recovery.time", "result", "failed"));
+            return;
+        }
+
         if (!canRetry) {
             log.warn("[RETRY RECOVER] 재시도 횟수 초과 - allFail 발행, couponIssueRequestId: {}",
                     retryEvent.couponIssueRequestId());
+            meterRegistry.counter("coupon.recovery.allfail").increment();
             kafkaProducingService.sendAllFail(event, retryEvent.failReason());
+            sample.stop(meterRegistry.timer("coupon.recovery.time", "result", "allfail"));
             return;
         }
 
         try {
+            // ⚠️ NOTE: 각 step 메서드는 내부에서 예외를 catch하고 sendRecovery 후 false/null 반환
+            //          이 catch는 step 메서드가 아닌 recoverFromCurrentState 상단의
+            //          existsUserCoupon / getIssueRequestStatus DB 조회 실패만 커버
             recoverFromCurrentState(event);
+            meterRegistry.counter("coupon.recovery.success").increment();
+            sample.stop(meterRegistry.timer("coupon.recovery.time", "result", "success"));
         } catch (Exception e) {
-            log.error("[RETRY RECOVER FAIL] 복구 실패 - couponIssueRequestId: {}, cause: {}",
+            log.error("[RETRY RECOVER FAIL] 상태 조회 실패 - couponIssueRequestId: {}, cause: {}",
                     event.couponIssueRequestId(), e.getMessage());
-            // 실패 시 다시 retry 토픽으로 — retryCount가 관리하므로 무한루프 없음
+            meterRegistry.counter("coupon.recovery.failed").increment();
             kafkaProducingService.sendRecovery(event, e.getMessage());
+            sample.stop(meterRegistry.timer("coupon.recovery.time", "result", "failed"));
         }
     }
 
-    // ── 현재 상태 확인 후 남은 step만 실행 ──
     private void recoverFromCurrentState(CouponIssueEventDto event) {
-        // 1) 유저쿠폰이 존재하는지 확인
         boolean userCouponExists = couponIssueService.existsUserCoupon(
                 event.couponId(), event.userId());
-
-        // 2) issueRequest 현재 상태 조회
         IssueRequestStatus currentStatus =
                 couponIssueService.getIssueRequestStatus(event.couponIssueRequestId());
 
         if (userCouponExists && currentStatus == IssueRequestStatus.ISSUED) {
-            // ── 케이스 A: 전부 완료 → skip ──
             log.info("[RECOVER] 이미 완료 - skip, couponIssueRequestId: {}",
                     event.couponIssueRequestId());
-            // step4(Kafka 발행)만 안 됐을 수 있으니 Outbox 확인
+            meterRegistry.counter("coupon.recovery.case", "case", "A_skip").increment();
             recoverStep4IfNeeded(event);
             return;
         }
 
         if (userCouponExists && currentStatus != IssueRequestStatus.ISSUED) {
-            // ── 케이스 B: 쿠폰 저장됨, 상태 미반영 → step3/4만 실행 ──
             log.info("[RECOVER] 쿠폰 존재, 상태 미반영 - step3/4 실행, couponIssueRequestId: {}",
                     event.couponIssueRequestId());
+            meterRegistry.counter("coupon.recovery.case", "case", "B_step3_4").increment();
             step3UpdateStatusLog(event);
             step4SendCompleteEvent(event);
             return;
         }
 
-        // ── 케이스 C: 쿠폰 미저장 → step1부터 전체 실행 ──
         log.info("[RECOVER] 쿠폰 미저장 - 전체 재처리, couponIssueRequestId: {}",
                 event.couponIssueRequestId());
+        meterRegistry.counter("coupon.recovery.case", "case", "C_full").increment();
 
         CouponCampaign campaign = step1Validation(event);
         if (campaign == null) return;
@@ -210,9 +261,6 @@ public class KafkaConsumerService {
         step4SendCompleteEvent(event);
     }
 
-    // ── step4 Outbox 미발행 복구 ──
-// ⚠️ NOTE: ISSUED까지 완료됐지만 Kafka 발행만 실패한 케이스
-//          Outbox가 PENDING이면 발행 시도, PUBLISHED면 skip
     private void recoverStep4IfNeeded(CouponIssueEventDto event) {
         try {
             boolean isPublished = couponIssueOutboxService.isPublished(event.couponIssueRequestId());
@@ -222,49 +270,114 @@ public class KafkaConsumerService {
                 step4SendCompleteEvent(event);
             }
         } catch (Exception e) {
-            // Outbox 확인 실패해도 스케줄러가 at-least-once 보장하므로 무시
             log.warn("[RECOVER] Outbox 확인 실패 - 스케줄러가 처리 예정, couponIssueRequestId: {}",
                     event.couponIssueRequestId());
         }
     }
 
-
     // ════════════════════════════════════════════════════════════════════════
     // Private 단계별 실행 메서드
     // ════════════════════════════════════════════════════════════════════════
 
-    // ── STEP 1: 사전 검증 (중복 확인 + 상태 PROCESSING 변경 + 캠페인 조회) ──
+    // ⚠️ NOTE: 배치 전용 Step1 — 3가지 검증(EventLog 존재/SUCCESS, 기발급 쌍, 캠페인 존재)을
+    //          루프 전 Pre-fetch(Q1~Q3) 후 인메모리에서 처리하고, 유효 건만 Q4 벌크 PROCESSING 업데이트
+    //          recovery 경로 단건 처리는 기존 step1Validation() 메서드를 그대로 사용
+    private List<BatchItem> step1ValidationBatch(List<CouponIssueEventDto> events, String topic) {
+        List<Long> requestIds = events.stream().map(CouponIssueEventDto::couponIssueRequestId).toList();
+        List<Long> couponIds  = events.stream().map(CouponIssueEventDto::couponId).distinct().toList();
+        List<String> userIds  = events.stream().map(CouponIssueEventDto::userId).toList();
+
+        // Q1: 배치 전체 최신 EventLog 1쿼리 조회
+        Map<Long, CouponEventLog> latestLogMap = couponIssueService.findLatestEventLogMap(requestIds);
+        // Q2: 배치 전체 캠페인 1쿼리 조회
+        Map<Long, CouponCampaign> campaignMap = couponIssueService.findAllCouponsByIds(couponIds);
+        // Q3: 배치 전체 기발급 쌍 1쿼리 조회
+        Set<String> issuedPairs = couponIssueService.findAlreadyIssuedPairs(couponIds, userIds);
+
+        log.info("[STEP 1 BATCH] pre-fetch 완료 - 수신: {}, logMap: {}, campaignMap: {}, issuedPairs: {}",
+                events.size(), latestLogMap.size(), campaignMap.size(), issuedPairs.size());
+
+        List<BatchItem> validItems   = new ArrayList<>();
+        List<Long> validRequestIds   = new ArrayList<>();
+
+        for (CouponIssueEventDto event : events) {
+            Long requestId = event.couponIssueRequestId();
+
+            // EventLog 없음 → 유효하지 않은 requestId
+            CouponEventLog eventLog = latestLogMap.get(requestId);
+            if (eventLog == null) {
+                log.warn("[STEP 1] EventLog 없음 → recovery 발행, requestId: {}", requestId);
+                meterRegistry.counter("coupon.step.failed", "step", "step1").increment();
+                kafkaProducingService.sendRecovery(event, "존재하지 않는 이벤트 요청입니다 requestId=" + requestId);
+                continue;
+            }
+
+            // 이미 SUCCESS → 중복 이벤트 skip
+            if (eventLog.getProcessingStatus() == EventProcessingStatus.SUCCESS) {
+                log.info("[STEP 1] 이미 처리된 이벤트 - skip, requestId: {}", requestId);
+                meterRegistry.counter("coupon.step.skipped", "step", "step1", "reason", "duplicated_event").increment();
+                continue;
+            }
+
+            // 기발급 쌍 포함 → 중복 발급 skip
+            if (issuedPairs.contains(event.couponId() + ":" + event.userId())) {
+                log.info("[STEP 1] 이미 발급된 쿠폰 - skip, requestId: {}", requestId);
+                couponIssueService.failAlreadyHadUserCoupon(requestId);
+                meterRegistry.counter("coupon.step.skipped", "step", "step1", "reason", "duplicated_coupon").increment();
+                continue;
+            }
+
+            // 캠페인 없음 → recovery 발행 + skip
+            CouponCampaign campaign = campaignMap.get(event.couponId());
+            if (campaign == null) {
+                log.error("[STEP 1 FAIL] 존재하지 않는 쿠폰 - recovery 발행, couponId: {}", event.couponId());
+                meterRegistry.counter("coupon.step.failed", "step", "step1").increment();
+                kafkaProducingService.sendRecovery(event, "존재하지 않는 쿠폰입니다 couponId=" + event.couponId());
+                continue;
+            }
+
+            validItems.add(new BatchItem(event, campaign));
+            validRequestIds.add(requestId);
+        }
+
+        // Q4: 유효 건 PROCESSING 상태 벌크 업데이트 (1 UPDATE)
+        if (!validRequestIds.isEmpty()) {
+            couponIssueService.bulkUpdateIssueRequestStatus(validRequestIds, IssueRequestStatus.PROCESSING);
+        }
+
+        log.info("[STEP 1 BATCH] 검증 완료 - 유효: {} / 전체: {}", validItems.size(), events.size());
+        return validItems;
+    }
+
     private CouponCampaign step1Validation(CouponIssueEventDto event) {
         log.info("[STEP 1] 사전 검증 시작 - couponIssueRequestId: {}", event.couponIssueRequestId());
         try {
-            // ⚠️ NOTE: 중복 처리 여부를 먼저 확인 후 PROCESSING 세팅
-            //          순서가 바뀌면 이미 ISSUED된 레코드를 PROCESSING으로 오염시킨 뒤
-            //          중복을 감지해 null 반환 → status stuck 버그 발생
             couponIssueService.checkAlreadyEvent(event.couponIssueRequestId());
             couponIssueService.checkAlreadyIssuedUserCoupon(event.couponId(), event.userId(), event.couponIssueRequestId());
-            log.info("PROCESSING넘어감");
             couponIssueService.updateIssueRequestStatus(event.couponIssueRequestId(), IssueRequestStatus.PROCESSING);
             CouponCampaign campaign = couponIssueService.findCoupon(event.couponId());
-
             log.info("[STEP 1] 사전 검증 완료 - campaignName: {}", campaign.getName());
             return campaign;
         } catch (CouponIssueException e) {
             if (e.getErrorCode() == ErrorCode.DUPLICATED_COUPON_ISSUE_EVENT) {
-                // 이미 처리된 요청 → 멱등성 보장, retry 없이 종료
-                log.info("[STEP 1] 이미 처리된 요청 - skip, couponIssueRequestId: {}", event.couponIssueRequestId());
-                kafkaProducingService.sendRecovery(event, e.getMessage());
+                log.info("[STEP 1] 이미 처리된 이벤트 - skip, couponIssueRequestId: {}", event.couponIssueRequestId());
+                meterRegistry.counter("coupon.step.skipped", "step", "step1", "reason", "duplicated_event").increment();
                 return null;
             }
             if (e.getErrorCode() == ErrorCode.DUPLICATED_COUPON_ISSUE) {
-                // 이미 처리된 요청 → 멱등성 보장, retry 없이 종료
-                log.info("[STEP 1] 이미 처리된 요청 - skip, couponIssueRequestId: {}", event.couponIssueRequestId());
+                log.info("[STEP 1] 이미 발급된 쿠폰 - skip, couponIssueRequestId: {}", event.couponIssueRequestId());
+                // ⚠️ NOTE: 프록시를 통한 직접 호출로 REQUIRES_NEW 트랜잭션이 정상 동작
+                couponIssueService.failAlreadyHadUserCoupon(event.couponIssueRequestId());
+                meterRegistry.counter("coupon.step.skipped", "step", "step1", "reason", "duplicated_coupon").increment();
                 return null;
             }
-            log.error("[STEP 1 FAIL] 사전 검증 실패 - couponIssueRequestId: {}, cause: {}", event.couponIssueRequestId(),e.getMessage());
+            log.error("[STEP 1 FAIL] 사전 검증 실패 - couponIssueRequestId: {}, cause: {}", event.couponIssueRequestId(), e.getMessage());
+            meterRegistry.counter("coupon.step.failed", "step", "step1").increment();
             kafkaProducingService.sendRecovery(event, e.getMessage());
             return null;
-        }catch (Exception e) {
+        } catch (Exception e) {
             log.error("[STEP 1 FAIL] 사전 검증 실패 - couponIssueRequestId: {}, cause: {}", event.couponIssueRequestId(), e.getMessage());
+            meterRegistry.counter("coupon.step.failed", "step", "step1").increment();
             kafkaProducingService.sendRecovery(event, e.getMessage());
             return null;
         }
@@ -272,7 +385,6 @@ public class KafkaConsumerService {
 
     private record BatchItem(CouponIssueEventDto event, CouponCampaign campaign) {}
 
-    // ── STEP 2: 유저 쿠폰 저장 ───────────────────────────────────────────────
     private void step2SaveUserCouponBatch(List<BatchItem> items) {
         log.info("[STEP 2 BATCH] 벌크 저장 시작 - {} 건", items.size());
 
@@ -285,7 +397,7 @@ public class KafkaConsumerService {
 
             userCoupons.add(UserCoupon.builder()
                     .userId(event.userId())
-                    .campaign(campaign)
+                    .couponId(event.couponId())
                     .couponCode(UUID.randomUUID().toString())
                     .status(UserCouponStatus.ISSUED)
                     .expiredAt(campaign.getEndAt())
@@ -307,23 +419,61 @@ public class KafkaConsumerService {
 
         try {
             couponIssueService.saveAllUserCouponsAndOutbox(userCoupons, outboxEvents);
+            meterRegistry.counter("coupon.step.success", "step", "step2_batch").increment(items.size());
             log.info("[STEP 2 BATCH] 벌크 저장 완료 - {} 건", items.size());
         } catch (Exception e) {
-            // 벌크 실패 → 100건 각각 retry 토픽 발행
             log.error("[STEP 2 BATCH FAIL] 벌크 저장 실패 - {} 건, cause: {}",
                     items.size(), e.getMessage());
+            meterRegistry.counter("coupon.step.failed", "step", "step2_batch").increment(items.size());
             for (BatchItem item : items) {
                 kafkaProducingService.sendRecovery(item.event(), e.getMessage());
             }
-            // step3/4 실행 방지
             throw e;
         }
     }
 
-    // ── STEP 3: 상태/로그 업데이트 (이벤트 로그 SUCCESS + 상태 ISSUED + 수량 증가) ──
-    // ⚠️ NOTE: OPEN 타입은 수량 제한이 없으므로 updateIssuedQuantity를 skip한다.
-    //          campaignType을 Kafka 메시지에 싣지 않고 DB(CouponCampaign.type)에서 직접
-    //          조회하는 이유: 메시지 유실·구버전 호환 시에도 항상 정확한 타입을 보장하기 위함.
+    // ⚠️ NOTE: 벌크 처리용 step3 — 건별 루프 대신 DB 왕복 3~4번으로 처리
+    //          실패 시 전체 items에 recovery 발행 후 false 반환 → 호출부에서 step4 건너뜀
+    //          step3 실패 상태에서 step4까지 실행하면 recovery 경로와 중복 complete 이벤트 발생
+    private boolean step3UpdateStatusLogBatch(List<BatchItem> items) {
+        log.info("[STEP 3 BATCH] 상태/로그 벌크 업데이트 시작 - {} 건", items.size());
+        try {
+            List<Long> requestIds = items.stream()
+                    .map(item -> item.event().couponIssueRequestId())
+                    .toList();
+
+            List<Long> couponIds = items.stream()
+                    .map(item -> item.event().couponId())
+                    .distinct()
+                    .toList();
+
+            // 1번: 이벤트 로그 벌크 INSERT (SUCCESS)
+            couponIssueService.bulkUpdateEventLogStatus(requestIds, EventProcessingStatus.SUCCESS);
+
+            // 2번: 발급 요청 상태 벌크 UPDATE
+            couponIssueService.bulkUpdateIssueRequestStatus(requestIds, IssueRequestStatus.ISSUED);
+
+            // 3번: 수량 동기화 — 쿠폰 종류별 1번씩만 (OPEN 타입 제외)
+            for (Long couponId : couponIds) {
+                CouponCampaign campaign = couponIssueService.findCoupon(couponId);
+                if (campaign.getType() != CampaignType.OPEN) {
+                    couponIssueService.syncIssuedQuantity(couponId);
+                }
+            }
+
+            meterRegistry.counter("coupon.step.success", "step", "step3_batch").increment(items.size());
+            log.info("[STEP 3 BATCH] 상태/로그 벌크 업데이트 완료 - {} 건", items.size());
+            return true;
+        } catch (Exception e) {
+            log.error("[STEP 3 BATCH FAIL] 상태/로그 벌크 업데이트 실패 - {} 건, cause: {}", items.size(), e.getMessage());
+            meterRegistry.counter("coupon.step.failed", "step", "step3_batch").increment(items.size());
+            for (BatchItem item : items) {
+                kafkaProducingService.sendRecovery(item.event(), e.getMessage());
+            }
+            return false;
+        }
+    }
+
     private boolean step3UpdateStatusLog(CouponIssueEventDto event) {
         log.info("[STEP 3] 상태/로그 업데이트 시작 - couponIssueRequestId: {}", event.couponIssueRequestId());
         try {
@@ -333,44 +483,71 @@ public class KafkaConsumerService {
             if (campaign.getType() != CampaignType.OPEN) {
                 couponIssueService.updateIssuedQuantity(event.couponId());
             }
+            meterRegistry.counter("coupon.step.success", "step", "step3").increment();
             log.info("[STEP 3] 상태/로그 업데이트 완료 - couponIssueRequestId: {}", event.couponIssueRequestId());
             return true;
         } catch (Exception e) {
             log.error("[STEP 3 FAIL] 상태/로그 업데이트 실패 - couponIssueRequestId: {}, cause: {}", event.couponIssueRequestId(), e.getMessage());
+            meterRegistry.counter("coupon.step.failed", "step", "step3").increment();
             kafkaProducingService.sendRecovery(event, e.getMessage());
             return false;
         }
     }
 
-    // ── STEP 4: 발급 완료 Kafka 토픽 발행 ────────────────────────────────────
-    // ⚠️ NOTE: 발행 성공 시 즉시 Outbox를 PUBLISHED로 변경하여 5초 스케줄러의 중복 발행을 방지한다.
-    //          발행 실패 시 Outbox는 PENDING 상태로 유지 → 스케줄러가 at-least-once 전달 보장
     private void step4SendCompleteEvent(CouponIssueEventDto event) {
         log.info("[STEP 4] 발급 완료 이벤트 발행 시작 - couponIssueRequestId: {}", event.couponIssueRequestId());
         try {
             kafkaProducingService.cosumeIssueComplete(event);
             couponIssueOutboxService.markPublishedByAggregateId(event.couponIssueRequestId());
+            meterRegistry.counter("coupon.step.success", "step", "step4").increment();
             log.info("[STEP 4] 발급 완료 이벤트 발행 완료 - couponIssueRequestId: {}", event.couponIssueRequestId());
         } catch (Exception e) {
             log.error("[STEP 4 FAIL] 발급 완료 이벤트 발행 실패 - couponIssueRequestId: {}, cause: {}", event.couponIssueRequestId(), e.getMessage());
+            meterRegistry.counter("coupon.step.failed", "step", "step4").increment();
             kafkaProducingService.sendRecovery(event, e.getMessage());
         }
     }
 
+    private boolean step2SaveUserCoupon(CouponIssueEventDto event, CouponCampaign campaign) {
+        log.info("[STEP 2] 유저 쿠폰 저장 시작 - userId: {}, couponId: {}", event.userId(), event.couponId());
+        try {
+            couponIssueService.saveUserCoupon(UserCoupon.builder()
+                            .userId(event.userId())
+                            .couponId(event.couponId())
+                            .couponCode(UUID.randomUUID().toString())
+                            .status(UserCouponStatus.ISSUED)
+                            .expiredAt(campaign.getEndAt())
+                            .build(),
+                    OutboxEvent.builder()
+                            .aggregateType("CouponIssueRequest")
+                            .aggregateId(event.couponIssueRequestId())
+                            .eventType("SAVE_USER_COUPON")
+                            .payload(objectMapper.writeValueAsString(event))
+                            .publishStatus(OutboxPublishStatus.PENDING)
+                            .build());
+            meterRegistry.counter("coupon.step.success", "step", "step2_single").increment();
+            log.info("[STEP 2] 유저 쿠폰 저장 완료 - userId: {}, couponId: {}", event.userId(), event.couponId());
+            return true;
+        } catch (Exception e) {
+            log.error("[STEP 2 FAIL] 유저 쿠폰 저장 실패 - userId: {}, couponId: {}, cause: {}",
+                    event.userId(), event.couponId(), e.getMessage());
+            meterRegistry.counter("coupon.step.failed", "step", "step2_single").increment();
+            kafkaProducingService.sendRecovery(event, e.getMessage());
+            return false;
+        }
+    }
 
     @KafkaListener(topics = "coupon-issue-complete", groupId = "coupon-group-complete")
     public void completeIssueCoupon(CouponIssueEventDto completedEvent) {
-            log.info("발급 성공: couponId: %d, userId: %s couponRequestId:%d "
-                    .formatted(completedEvent.couponId(), completedEvent.userId(), completedEvent.couponIssueRequestId()));
+        meterRegistry.counter("coupon.issue.complete").increment();
+        log.info("발급 성공: couponId: %d, userId: %s couponRequestId:%d "
+                .formatted(completedEvent.couponId(), completedEvent.userId(), completedEvent.couponIssueRequestId()));
     }
-
-
 
     @KafkaListener(topics = "coupon-issue-all-fail", groupId = "coupon-group-all-fail", containerFactory = "retryContainerFactory")
     public void issueAllfail(CouponIssueRetryEventDto retryEvent) {
-        //비정상 상황
+        meterRegistry.counter("coupon.issue.allfail").increment();
+        log.error("[ALL FAIL] 완전 실패 - couponIssueRequestId: {}, failReason: {}",
+                retryEvent.couponIssueRequestId(), retryEvent.failReason());
     }
-
-
-
 }

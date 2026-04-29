@@ -7,13 +7,13 @@ spring:
     username: abcd
     password: '1234'
     hikari:
-      maximum-pool-size: 10
+      maximum-pool-size: 50
       max-lifetime: 1800000
       connection-timeout: 30000
   jpa:
     hibernate:
       ddl-auto: none
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         format_sql: true
@@ -35,6 +35,11 @@ spring:
         spring.json.trusted.packages: "*"
         spring.json.use.type.headers: false
         spring.json.value.default.type: com.eCommerce.couponDomain.dto.CouponIssueEventDto
+        max.poll.records: 1000          # 500(기본) → 1000: 배치 크기 2배, Step2·3 고정 오버헤드 분산
+        fetch.min.bytes: 16384          # 16KB 쌓일 때까지 대기 → 배치 충전률 향상
+        fetch.max.wait.ms: 1000         # 최대 1초 대기 (기본 500ms 상향) — fetch.min.bytes 미달 시 상한
+        # ⚠️ NOTE: 1000건×Step1(O(N)) 처리 시간 안전 마진 확보; 기본 5분으로는 대량 배치 시 리밸런싱 위험
+        max.poll.interval.ms: 600000    # 10분: 리밸런싱 방지
 server:
   port: 8082
 

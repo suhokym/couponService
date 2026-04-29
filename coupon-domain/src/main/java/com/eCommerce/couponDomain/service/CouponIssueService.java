@@ -18,6 +18,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import static com.eCommerce.couponDomain.exception.ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -64,12 +70,52 @@ public class CouponIssueService {
         outboxEventRepository.saveAll(outboxEvents);
     }
 
+    // CouponIssueService
+    public boolean existsUserCoupon(Long couponId, String userId) {
+        return userCouponRepository.existsByCouponIdAndUserId(couponId, userId);
+    }
+
+    // ⚠️ NOTE: Step1 Pre-fetch용 — 배치 전체의 캠페인을 1쿼리로 조회해 Map으로 반환
+    //          건별 findCoupon(id) 대신 사용하여 N×1 → 1 쿼리로 절감
+    @Transactional(readOnly = true)
+    public Map<Long, CouponCampaign> findAllCouponsByIds(List<Long> ids) {
+        return couponCampaignJpaRepository.findAllById(ids).stream()
+                .collect(Collectors.toMap(CouponCampaign::getCouponId, c -> c));
+    }
+
+    // ⚠️ NOTE: Step1 Pre-fetch용 — 배치 전체의 최신 EventLog를 1쿼리로 조회해 Map으로 반환
+    //          건별 checkAlreadyEvent 대신 사용하여 N×2 → 1 쿼리로 절감
+    @Transactional(readOnly = true)
+    public Map<Long, CouponEventLog> findLatestEventLogMap(List<Long> requestIds) {
+        return couponEventLogRepository.findLatestByRequestIds(requestIds).stream()
+                .collect(Collectors.toMap(
+                        log -> log.getRequest().getRequestId(),
+                        log -> log));
+    }
+
+    // ⚠️ NOTE: Step1 Pre-fetch용 — 배치 전체의 기발급 쌍을 1쿼리로 조회해 Set으로 반환
+    //          "couponId:userId" 형태로 변환하여 O(1) 인메모리 중복 체크 가능
+    @Transactional(readOnly = true)
+    public Set<String> findAlreadyIssuedPairs(List<Long> couponIds, List<String> userIds) {
+        return userCouponRepository.findByCouponIdInAndUserIdIn(couponIds, userIds).stream()
+                .map(uc -> uc.getCouponId() + ":" + uc.getUserId())
+                .collect(Collectors.toSet());
+    }
+
+
+    public IssueRequestStatus getIssueRequestStatus(Long couponIssueRequestId) {
+        return couponIssueRequestRepository.findById(couponIssueRequestId)
+                .orElseThrow(() -> new CouponIssueException(COUPON_ISSUE_REQUEST_NOT_FOUND, "해당 쿠폰 대기열이 존재하지 않습니다."))
+                .getStatus();
+    }
+    
+
     @Transactional
     public void saveUserCoupon(UserCoupon event, OutboxEvent outboxEvent) {
         // ⚠️ NOTE: couponCode는 UNIQUE 제약 포함 — blank 검증도 추가
         if (event == null
                 || event.getUserId() == null
-                || event.getCampaign() == null
+                || event.getCouponId() == null
                 || event.getCouponCode() == null || event.getCouponCode().isBlank()
                 || event.getStatus() == null
                 || event.getExpiredAt() == null) {
@@ -110,7 +156,7 @@ public class CouponIssueService {
        CouponIssueRequest request = couponIssueRequestRepository
                .findById(issueRequestId)
                .orElseThrow(() ->
-                       new CouponIssueException(ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND, "해당 request가 존재하지 않습니다 : %d".formatted(issueRequestId)));
+                       new CouponIssueException(COUPON_ISSUE_REQUEST_NOT_FOUND, "해당 request가 존재하지 않습니다 : %d".formatted(issueRequestId)));
        request.updateStatus(status);
 
     }
@@ -121,7 +167,7 @@ public class CouponIssueService {
         //          최신 로그에서 eventType/payload를 복사해 상태만 바꾼 새 레코드 생성
         CouponIssueRequest request = couponIssueRequestRepository.findById(issueRequestId)
                 .orElseThrow(() ->
-                        new CouponIssueException(ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND, "해당 request가 존재하지 않습니다 : %d".formatted(issueRequestId)));
+                        new CouponIssueException(COUPON_ISSUE_REQUEST_NOT_FOUND, "해당 request가 존재하지 않습니다 : %d".formatted(issueRequestId)));
 
         CouponEventLog latest = couponEventLogRepository
                 .findTopByRequest_RequestIdOrderByCreatedAtDesc(issueRequestId)
@@ -177,9 +223,10 @@ public class CouponIssueService {
 
     }
     @Transactional(readOnly = true)
-    public void checkAlreadyIssuedUserCoupon(Long couponId, String userId,Long issueRequestId) {
-        if(userCouponRepository.existsByCampaign_CouponIdAndUserId(couponId,userId)){
-            failAlreadyHadUserCoupon(issueRequestId);
+    public void checkAlreadyIssuedUserCoupon(Long couponId, String userId, Long issueRequestId) {
+        // ⚠️ NOTE: self-invocation 시 AOP 프록시 우회로 REQUIRES_NEW가 무효화되므로
+        //          failAlreadyHadUserCoupon 호출을 제거 — 호출부에서 직접 프록시를 통해 호출
+        if (userCouponRepository.existsByCouponIdAndUserId(couponId, userId)) {
             throw new CouponIssueException(ErrorCode.DUPLICATED_COUPON_ISSUE, "이미 발급된 쿠폰입니다");
         }
     }
@@ -188,7 +235,7 @@ public class CouponIssueService {
         // 별도 트랜잭션이라 예외 영향 안 받음
         CouponIssueRequest request = couponIssueRequestRepository.findByRequestId(issueRequestId)
                 .orElseThrow(() -> new CouponIssueException(
-                        ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND,
+                        COUPON_ISSUE_REQUEST_NOT_FOUND,
                         "존재하지 않는 발급요청 입니다 requestId: %d".formatted(issueRequestId)));
         request.faliedBusiness("이미 발급된 쿠폰입니다.");
     }
@@ -198,7 +245,7 @@ public class CouponIssueService {
         CouponIssueRequest couponIssueRequest = couponIssueRequestRepository.findById(IssueRequestId)
                 .orElseThrow(() ->
                         new CouponIssueException(
-                                ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND,
+                                COUPON_ISSUE_REQUEST_NOT_FOUND,
                                 "존재하지 않는 발급요청 입니다 requestId: %d".formatted(IssueRequestId)));
 
         // 3번의 실패 시 allFailed로 이동
@@ -234,7 +281,7 @@ public class CouponIssueService {
         CouponIssueRequest couponIssueRequest = couponIssueRequestRepository.findById(IssueRequestId)
                 .orElseThrow(() ->
                         new CouponIssueException(
-                                ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND,
+                                COUPON_ISSUE_REQUEST_NOT_FOUND,
                                 "존재하지 않는 발급요청 입니다 requestId: %d".formatted(IssueRequestId)));
 
         couponIssueRequest.updateAllFail(failReason);
@@ -281,7 +328,7 @@ public class CouponIssueService {
     public void resetToRequested(Long requestId) {
         CouponIssueRequest req = couponIssueRequestRepository.findById(requestId)
                 .orElseThrow(() -> new CouponIssueException(
-                        ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND,
+                        COUPON_ISSUE_REQUEST_NOT_FOUND,
                         "존재하지 않는 발급요청 입니다 requestId: %d".formatted(requestId)));
         req.updateStatus(IssueRequestStatus.REQUESTED);
     }
@@ -299,9 +346,48 @@ public class CouponIssueService {
         boolean exists = couponEventLogRepository
                 .findTopByRequest_RequestIdOrderByCreatedAtDesc(issueRequestId).isPresent();
         if (!exists) {
-            throw new CouponIssueException(ErrorCode.COUPON_ISSUE_REQUEST_NOT_FOUND, "존재하지 않는 쿠폰 이벤트 요청입니다 issueRequestId=%d"
+            throw new CouponIssueException(COUPON_ISSUE_REQUEST_NOT_FOUND, "존재하지 않는 쿠폰 이벤트 요청입니다 issueRequestId=%d"
                     .formatted(issueRequestId));
         }
+    }
+
+    // ⚠️ NOTE: 벌크 처리용 — 여러 requestId에 대해 SUCCESS EventLog를 한 번에 INSERT
+    //          각 requestId의 최신 로그를 1쿼리로 조회 후 saveAll로 일괄 저장
+    @Transactional
+    public void bulkUpdateEventLogStatus(List<Long> requestIds, EventProcessingStatus status) {
+        List<CouponEventLog> latestLogs = couponEventLogRepository.findLatestByRequestIds(requestIds);
+        Map<Long, CouponEventLog> latestByRequestId = latestLogs.stream()
+                .collect(Collectors.toMap(log -> log.getRequest().getRequestId(), log -> log));
+
+        List<CouponEventLog> newLogs = requestIds.stream()
+                .map(latestByRequestId::get)
+                .filter(Objects::nonNull)
+                .map(latest -> CouponEventLog.builder()
+                        .request(latest.getRequest())
+                        .eventType(latest.getEventType())
+                        .payload(latest.getPayload())
+                        .processingStatus(status)
+                        .build())
+                .collect(Collectors.toList());
+
+        couponEventLogRepository.saveAll(newLogs);
+    }
+
+    // ⚠️ NOTE: 벌크 처리용 — 여러 requestId의 상태를 단일 UPDATE 쿼리로 변경
+    @Transactional
+    public void bulkUpdateIssueRequestStatus(List<Long> requestIds, IssueRequestStatus status) {
+        couponIssueRequestRepository.bulkUpdateStatus(requestIds, status);
+    }
+
+    // ⚠️ NOTE: 벌크 처리 후 캠페인 IssuedQuantity 동기화 — 배치에서 건별 INCREMENT 대신
+    //          실제 발급 수를 COUNT하여 정확한 값으로 갱신
+    @Transactional
+    public void syncIssuedQuantity(Long couponId) {
+        CouponCampaign couponCampaign = couponCampaignJpaRepository.findById(couponId)
+                .orElseThrow(() -> new CouponIssueException(ErrorCode.COUPON_NOT_EXIST,
+                        "해당 쿠폰은 존재하지 않습니다 : %d".formatted(couponId)));
+        long count = userCouponRepository.countByCouponId(couponId);
+        couponCampaign.syncIssuedQuantity((int) count);
     }
 
     // UpdateRetry / allFailed에서 EventLog가 없을 때 payload 재생성용 헬퍼

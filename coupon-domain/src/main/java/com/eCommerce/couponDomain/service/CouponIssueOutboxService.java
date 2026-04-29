@@ -43,6 +43,15 @@ public class CouponIssueOutboxService {
         );
     }
 
+    // CouponIssueOutboxService
+    public boolean isPublished(Long couponIssueRequestId) {
+        return outboxEventRepository
+                .findByAggregateId(couponIssueRequestId)
+                .map(outbox -> outbox.getPublishStatus() == OutboxPublishStatus.PUBLISHED)
+                .orElse(true);  // Outbox 자체가 없으면 발행 불필요
+    }
+
+
     // ④ Kafka 발행 성공 시
     @Transactional
     public void markPublished(Long outboxId) {

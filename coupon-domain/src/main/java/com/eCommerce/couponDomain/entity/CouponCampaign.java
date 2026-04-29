@@ -57,7 +57,12 @@ public class CouponCampaign extends BaseTimeEntity {
     }
 
     public void updateIssuedQuantity() {
-        this.IssuedQuantity = this.IssuedQuantity +1;
+        this.IssuedQuantity = this.IssuedQuantity + 1;
+    }
+
+    // ⚠️ NOTE: 벌크 처리 후 실제 DB 발급 수로 동기화 — INCREMENT 누락 방지용
+    public void syncIssuedQuantity(int count) {
+        this.IssuedQuantity = count;
     }
 
     // ⚠️ NOTE: DB 저장 직전 2차 방어 검증 — Redis 캐시 불일치나 캐시 미스 상황에서도

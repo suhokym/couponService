@@ -1,10 +1,7 @@
 package com.eCommerce.couponAdmin.service;
 
 import com.eCommerce.couponDomain.dto.UserCouponDto;
-import com.eCommerce.couponDomain.entity.CouponCampaign;
 import com.eCommerce.couponDomain.entity.UserCoupon;
-import com.eCommerce.couponDomain.entity.enums.CampaignStatus;
-import com.eCommerce.couponDomain.entity.enums.CampaignType;
 import com.eCommerce.couponDomain.entity.enums.UserCouponStatus;
 import com.eCommerce.couponDomain.repository.UserCouponRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,26 +28,14 @@ class UserCouponAdminServiceTest {
     @Mock
     private UserCouponRepository userCouponRepository;
 
-    private CouponCampaign campaign;
     private UserCoupon user1Coupon;
     private UserCoupon user2Coupon;
 
     @BeforeEach
     void setUp() {
-        campaign = CouponCampaign.builder()
-                .couponId(1L)
-                .name("테스트 캠페인")
-                .type(CampaignType.FIRST_COME)
-                .status(CampaignStatus.ACTIVE)
-                .totalQuantity(100)
-                .IssuedQuantity(2)
-                .startAt(LocalDateTime.now().minusDays(1))
-                .endAt(LocalDateTime.now().plusDays(1))
-                .build();
-
         user1Coupon = UserCoupon.builder()
                 .userId("user1")
-                .campaign(campaign)
+                .couponId(1L)
                 .couponCode("CODE-AAAA")
                 .status(UserCouponStatus.ISSUED)
                 .expiredAt(LocalDateTime.now().plusDays(30))
@@ -58,7 +43,7 @@ class UserCouponAdminServiceTest {
 
         user2Coupon = UserCoupon.builder()
                 .userId("user2")
-                .campaign(campaign)
+                .couponId(1L)
                 .couponCode("CODE-BBBB")
                 .status(UserCouponStatus.USED)
                 .expiredAt(LocalDateTime.now().plusDays(30))
