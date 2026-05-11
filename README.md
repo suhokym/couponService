@@ -6,10 +6,11 @@
 
 ```
 couponService/
-├── coupon-api        # WebFlux 기반 쿠폰 발급 API (Port: 8081)
-├── coupon-consumer   # Kafka 이벤트 소비 및 실제 쿠폰 발급 처리 (Port: 8082)
-├── coupon-admin      # 쿠폰 캠페인 관리 (Port: 8083)
-└── coupon-domain     # 공유 도메인 모델 및 비즈니스 로직
+├── coupon-api          # WebFlux 기반 쿠폰 발급 API (Port: 8081)
+├── coupon-api-mvc-v1   # Spring MVC 기반 쿠폰 발급 API — 부하테스트 비교용 (Port: 8084)
+├── coupon-consumer     # Kafka 이벤트 소비 및 실제 쿠폰 발급 처리 (Port: 8082)
+├── coupon-admin        # 쿠폰 캠페인 관리 (Port: 8083)
+└── coupon-domain       # 공유 도메인 모델 및 비즈니스 로직
 ```
 
 ## 핵심 기술 스택
@@ -18,11 +19,13 @@ couponService/
 |------|------|
 | Language | Java 17 |
 | Framework | Spring Boot 3.4.3 |
-| Reactive | Spring WebFlux |
+| Reactive | Spring WebFlux (coupon-api) |
 | ORM | Spring Data JPA, QueryDSL 5.1.0 |
 | Message Queue | Apache Kafka |
 | Cache / 분산 제어 | Redis 7 |
 | Database | MySQL 8.0 |
+| Monitoring | Prometheus + Grafana, Micrometer |
+| Load Test | Locust |
 | Build | Gradle |
 
 ## 쿠폰 캠페인 유형
@@ -85,6 +88,7 @@ coupon-consumer
 | `coupon-issue-retry-step2` | Consumer → Consumer | STEP2 실패 재시도 |
 | `coupon-issue-retry-step3` | Consumer → Consumer | STEP3 실패 재시도 |
 | `coupon-issue-retry-step4` | Consumer → Consumer | STEP4 실패 재시도 |
+| `coupon-issue-recovery` | Consumer → Consumer | 상태 기반 복구 처리 |
 | `coupon-issue-complete` | Consumer → (downstream) | 발급 완료 이벤트 |
 | `coupon-issue-all-fail` | Consumer → (downstream) | retryCount ≥ 3 최종 실패 |
 
@@ -155,6 +159,27 @@ retry 토픽 수신
 실패한 단계부터만 재실행하므로 이미 성공한 단계를 반복하지 않습니다.
 각 retry 토픽에는 `failReason` 필드가 포함된 `CouponIssueRetryEventDto`가 실립니다.
 
+### 상태 기반 Recovery (`coupon-issue-recovery`)
+
+retry 토픽에서 복구할 수 없는 예외 발생 시 `coupon-issue-recovery` 토픽으로 발행합니다.
+Consumer는 DB의 현재 상태를 읽어 필요한 단계만 선택적으로 재실행합니다.
+
+```
+coupon-issue-recovery 수신
+       │
+       ▼
+  UpdateRetry() 호출
+       ├── retryCount >= 3 → allFail 발행, 종료
+       │
+       └── canRetry == true
+               │
+               ▼
+         recoverFromCurrentState()
+               ├── [A] UserCoupon 존재 + status=ISSUED  → STEP4만 보완 (Outbox 확인)
+               ├── [B] UserCoupon 존재 + status≠ISSUED  → STEP3 + STEP4 실행
+               └── [C] UserCoupon 미존재                → STEP1 ~ STEP4 전체 재실행
+```
+
 ---
 
 ## 설계 패턴
@@ -176,6 +201,34 @@ retry 토픽 수신
 ### Optimistic Locking
 
 - `UserCoupon.version` 필드로 동일 쿠폰 중복 사용 방지
+
+---
+
+## 모니터링
+
+### Prometheus + Grafana
+
+| 서비스 | URL |
+|--------|-----|
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 (admin / admin) |
+
+Prometheus는 5초 간격으로 `coupon-consumer`의 `/actuator/prometheus` 엔드포인트를 수집합니다.
+
+### Micrometer 메트릭 (coupon-consumer)
+
+| 메트릭 | 설명 |
+|--------|------|
+| `coupon.batch.received` | 배치 수신 건수 (topic 태그) |
+| `coupon.batch.validated` | STEP1 검증 통과 건수 |
+| `coupon.batch.validation.failed` | STEP1 검증 실패 건수 |
+| `coupon.step.time` | 각 STEP 처리 시간 (step, result 태그) |
+| `coupon.recovery.received` | Recovery 진입 건수 |
+| `coupon.recovery.success` | Recovery 성공 건수 |
+| `coupon.recovery.failed` | Recovery 실패 건수 |
+| `coupon.recovery.allfail` | Recovery 최종 실패(retryCount 소진) |
+| `coupon.recovery.case` | Recovery 케이스 분류 (A_skip / B_step3_4 / C_full) |
+| `coupon.recovery.time` | Recovery 처리 시간 |
 
 ---
 
@@ -231,7 +284,8 @@ REQUESTED → PROCESSING → ISSUED
 
 | 서비스 | Swagger URL |
 |--------|-------------|
-| coupon-api | http://localhost:8081/swagger-ui.html |
+| coupon-api (WebFlux) | http://localhost:8081/swagger-ui.html |
+| coupon-api-mvc-v1 (MVC) | http://localhost:8084/swagger-ui.html |
 | coupon-consumer | http://localhost:8082/swagger-ui.html |
 | coupon-admin | http://localhost:8083/swagger-ui.html |
 
@@ -272,6 +326,18 @@ GET    /admin/issue-requests/{id}                           - 발급 요청 상�
 GET    /admin/user-coupons?userId=user1&page=0&size=20      - 유저 쿠폰 목록 (userId 필터 + 페이지네이션)
 ```
 
+**이벤트 로그 조회**
+
+```
+GET    /admin/event-logs?requestId={id}                     - 요청별 전체 처리 이력
+```
+
+**Outbox 모니터링**
+
+```
+GET    /admin/outbox?status=PENDING&page=0&size=20          - Outbox 이벤트 목록
+```
+
 **페이지네이션 응답 구조** (Spring `Page<T>`)
 
 ```json
@@ -283,6 +349,25 @@ GET    /admin/user-coupons?userId=user1&page=0&size=20      - 유저 쿠폰 목�
   "size": 20
 }
 ```
+
+---
+
+## 부하 테스트 (Locust)
+
+WebFlux vs MVC 성능 비교를 위한 Locust 스크립트가 `load-test/` 디렉토리에 있습니다.
+
+| 파일 | 대상 서버 | 설명 |
+|------|-----------|------|
+| `locustfile.py` | coupon-api (WebFlux, 8081) | 선착순 쿠폰 발급 부하 테스트 |
+| `locustfile_mvc.py` | coupon-api-mvc-v1 (MVC, 8084) | MVC 블로킹 방식 비교 테스트 |
+
+```bash
+cd load-test
+docker-compose up -d   # Locust 실행
+# http://localhost:8089 에서 테스트 시작
+```
+
+> 동일 조건 부하 테스트 결과: **WebFlux가 MVC 대비 약 5.6배 높은 처리량** 기록
 
 ---
 
@@ -315,6 +400,8 @@ docker-compose up -d
 | Redis | 6380 |
 | Kafka | 9092 |
 | Zookeeper | 2181 |
+| Prometheus | 9090 |
+| Grafana | 3000 |
 
 ## 실행 방법
 
@@ -329,6 +416,9 @@ docker-compose up -d
 ./gradlew :coupon-api:bootRun
 ./gradlew :coupon-consumer:bootRun
 ./gradlew :coupon-admin:bootRun
+
+# 4. MVC 비교 모듈 실행 (선택)
+./gradlew :coupon-api-mvc-v1:bootRun
 ```
 
 ## DB 접속 정보 (로컬)
